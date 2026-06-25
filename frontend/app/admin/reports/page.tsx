@@ -4,19 +4,21 @@ import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
 
 interface ReportStats {
-  annualYield:      string | null;
-  averageRevenue:   string | null;
-  totalOccupancy:   string | null;
-  netProfitMargin:  string | null;
+  annualYield: string | null;
+  averageRevenue: string | null;
+  totalOccupancy: string | null;
+  netProfitMargin: string | null;
 }
 
 const TABS = ["Revenue", "Occupancy"];
 
 export default function ReportsPage() {
-  const [tab, setTab]   = useState(0);
+  const [tab, setTab] = useState(0);
   const [stats, setStats] = useState<ReportStats>({
-    annualYield: null, averageRevenue: null,
-    totalOccupancy: null, netProfitMargin: null,
+    annualYield: null,
+    averageRevenue: null,
+    totalOccupancy: null,
+    netProfitMargin: null,
   });
 
   useEffect(() => {
@@ -61,23 +63,44 @@ export default function ReportsPage() {
             </button>
           ))}
         </div>
-        <p className="text-[11px] text-gray-400 ml-2">Fiscal year 2025 (1 Jan - 31 Dec)</p>
+        <p className="text-[11px] text-gray-400 ml-2">
+          Fiscal year 2025 (1 Jan - 31 Dec)
+        </p>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {[
-          { label: "Annual Yield",      value: stats.annualYield,     sub: "" },
-          { label: "Average Revenue",   value: stats.averageRevenue,  sub: "Based on 112 Active Units" },
-          { label: "Total Occupancy",   value: stats.totalOccupancy,  sub: "Retention rate 88%" },
-          { label: "Net Profit Margin", value: stats.netProfitMargin, sub: "Benchmark 53%" },
+          { label: "Annual Yield", value: stats.annualYield, sub: "" },
+          {
+            label: "Average Revenue",
+            value: stats.averageRevenue,
+            sub: "Based on 112 Active Units",
+          },
+          {
+            label: "Total Occupancy",
+            value: stats.totalOccupancy,
+            sub: "Retention rate 88%",
+          },
+          {
+            label: "Net Profit Margin",
+            value: stats.netProfitMargin,
+            sub: "Benchmark 53%",
+          },
         ].map((s) => (
-          <div key={s.label} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
-            <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">{s.label}</p>
+          <div
+            key={s.label}
+            className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm"
+          >
+            <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">
+              {s.label}
+            </p>
             <p className="text-xl font-bold text-[#2B2B2B]">
               {s.value ?? <span className="text-gray-200 text-sm">—</span>}
             </p>
-            {s.sub && <p className="text-[10px] text-gray-400 mt-0.5">{s.sub}</p>}
+            {s.sub && (
+              <p className="text-[10px] text-gray-400 mt-0.5">{s.sub}</p>
+            )}
           </div>
         ))}
       </div>
@@ -85,13 +108,17 @@ export default function ReportsPage() {
       {/* Charts */}
       <div className="grid md:grid-cols-2 gap-4">
         <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm">
-          <p className="text-sm font-semibold text-[#2B2B2B] mb-3">Occupancy Heatmap</p>
+          <p className="text-sm font-semibold text-[#2B2B2B] mb-3">
+            Occupancy Heatmap
+          </p>
           <div className="h-48 flex items-center justify-center border border-dashed border-gray-100 rounded-lg text-gray-200 text-xs">
             Heatmap chart will appear here
           </div>
         </div>
         <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm">
-          <p className="text-sm font-semibold text-[#2B2B2B] mb-3">Tenant Growth</p>
+          <p className="text-sm font-semibold text-[#2B2B2B] mb-3">
+            Tenant Growth
+          </p>
           <div className="h-48 flex items-center justify-center border border-dashed border-gray-100 rounded-lg text-gray-200 text-xs">
             Growth chart will appear here
           </div>
