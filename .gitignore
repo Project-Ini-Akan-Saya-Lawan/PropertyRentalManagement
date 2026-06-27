@@ -1,3 +1,12 @@
+# ========== BACKEND ==========
+backend/node_modules/
+backend/.env
+backend/logs/
+backend/*.log
+backend/dist/
+backend/build/
+.env
+
 frontend/node_modules/
 frontend/.next/
 frontend/.vscode/
