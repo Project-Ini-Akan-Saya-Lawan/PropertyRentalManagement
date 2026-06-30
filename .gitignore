@@ -1,4 +1,4 @@
-# ========== BACKEND ==========
+# ========== BackEnd ==========
 backend/node_modules/
 backend/.env
 backend/logs/
@@ -6,7 +6,7 @@ backend/*.log
 backend/dist/
 backend/build/
 .env
-
+# ========== FrontEnd ==========
 frontend/node_modules/
 frontend/.next/
 frontend/.vscode/

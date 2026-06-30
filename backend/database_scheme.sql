@@ -10,13 +10,15 @@ CREATE TABLE User_Roles (
     Role_name VARCHAR(50) NOT NULL
 );
 
--- 4. Membuat Tabel Users (Sudah ditambahkan Phone_number)
+-- 4. Membuat Tabel Users (Sudah ditambahkan Phone_number & Auth_provider)
 CREATE TABLE Users (
     User_id SERIAL PRIMARY KEY,
     Username VARCHAR(100) NOT NULL,
     Email VARCHAR(150) UNIQUE NOT NULL,
     Phone_number VARCHAR(20) UNIQUE, -- Kolom baru untuk nomor telepon
-    Hashed_password VARCHAR(255) NOT NULL,
+    Hashed_password VARCHAR(255), -- Nullable: user via Google OAuth tidak punya password lokal
+    Auth_provider VARCHAR(20) NOT NULL DEFAULT 'local', -- 'local' atau 'google'
+    Google_id VARCHAR(100) UNIQUE, -- Menyimpan profile.id dari Google
     Role_id INT,
     FOREIGN KEY (Role_id) REFERENCES User_Roles(Role_id) ON DELETE SET NULL
 );

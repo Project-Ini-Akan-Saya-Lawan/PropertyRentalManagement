@@ -27,6 +27,7 @@ cd booking-system
 # 2. INSTALL DEPENDENCIES
 # ==========================================
 npm install
+npm install express passport passport-google-oauth20 dotenv cors pg bcrypt jsonwebtoken
 
 # ==========================================
 # 3. ENVIRONMENT VARIABLES CONFIGURATION
@@ -38,8 +39,10 @@ npm install
 # DB_PASSWORD=<pw>
 # DB_HOST=localhost
 # DB_NAME=booking_system_db
-# DB_PORT=5432
+# DB_PORT=<port>
 # JWT_SECRET=<secret>
+# GOOGLE_CLIENT_ID=<CLIENT_ID>
+# GOOGLE_CLIENT_SECRET=<CLIENT_SECRET>
 
 # ==========================================
 # 4. DATABASE SETUP
