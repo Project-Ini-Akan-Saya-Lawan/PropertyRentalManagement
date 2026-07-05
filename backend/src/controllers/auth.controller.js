@@ -12,32 +12,42 @@ const signup = async (req, res) => {
         return res.status(400).json({ message: 'Username, email, dan password wajib diisi.' });
     }
 
-    try {
-        const userExists = await pool.query(
-            'SELECT * FROM Users WHERE email = $1 OR phone_number = $2',
-            [email, phone_number || null]
-        );
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (typeof email !== 'string' || !emailRegex.test(email.trim())) {
+        return res.status(400).json({ message: 'Format email tidak valid.' });
+    }
+    const normalizedEmail = email.trim().toLowerCase();
+    
+    if (password.length < 8) {
+        return res.status(400).json({
+            message: 'Password minimal 8 karakter.'
+        });
+    }
 
-        if (userExists.rows.length > 0) {
-            return res.status(400).json({ message: 'Email atau nomor telepon sudah terdaftar.' });
-        }
-
+    
+    try{
         const hashedPassword = await bcrypt.hash(password, 10);
-
         const newUser = await pool.query(
             `INSERT INTO Users (username, email, phone_number, hashed_password, auth_provider, role_id)
              VALUES ($1, $2, $3, $4, 'local', $5) RETURNING user_id, username, email, phone_number, auth_provider`,
-            [username, email, phone_number || null, hashedPassword, role_id || null]
+            [username, normalizedEmail, phone_number || null, hashedPassword, role_id]
         );
 
         res.status(201).json({
             message: 'Registrasi berhasil!',
             user: newUser.rows[0]
         });
-
     } catch (error) {
+        if (error.code === '23505') {
+            return res.status(400).json({
+                message: 'Email atau nomor telepon sudah terdaftar.'
+            });
+        }
+    
         console.error(error);
-        res.status(500).json({ message: 'Terjadi kesalahan pada server.' });
+        return res.status(500).json({
+            message: 'Terjadi kesalahan pada server.'
+        });
     }
 };
 
@@ -48,9 +58,15 @@ const login = async (req, res) => {
     if (!email || !password) {
         return res.status(400).json({ message: 'Email dan password wajib diisi.' });
     }
-
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (typeof email !== 'string' || !emailRegex.test(email.trim())) {
+        return res.status(400).json({ message: 'Format email tidak valid.' });
+    }
+    const normalizedEmail = email.trim().toLowerCase();
+    
     try {
-        const result = await pool.query('SELECT * FROM Users WHERE email = $1', [email]);
+        const result = await pool.query('SELECT * FROM Users WHERE email = $1', [normalizedEmail]);
 
         if (result.rows.length === 0) {
             return res.status(401).json({ message: 'Email atau password salah.' });
