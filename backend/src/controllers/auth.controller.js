@@ -5,7 +5,8 @@ const generateToken = require('../utils/generateToken');
 
 // LOGIKA SIGNUP
 const signup = async (req, res) => {
-    const { username, email, phone_number, password, role_id } = req.body;
+    const { username, email, phone_number, password } = req.body;
+    const role_id = 1; 
 
     if (!username || !email || !password) {
         return res.status(400).json({ message: 'Username, email, dan password wajib diisi.' });
