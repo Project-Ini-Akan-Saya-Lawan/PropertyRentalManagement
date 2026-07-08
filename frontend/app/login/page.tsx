@@ -12,6 +12,7 @@ const schema = z.object({
   email: z.string().email("Invalid email"),
   password: z.string().min(6, "Min 6 characters"),
 });
+
 type Form = z.infer<typeof schema>;
 
 const ADMIN_EMAIL = "admin@gmail.com";
@@ -30,22 +31,60 @@ export default function LoginPage() {
   });
 
   const onSubmit = async (data: Form) => {
-    await new Promise((r) => setTimeout(r, 600));
+    try {
+      // Admin Login (sementara)
+      if (
+        data.email === ADMIN_EMAIL &&
+        data.password === ADMIN_PASSWORD
+      ) {
+        localStorage.setItem("isAdmin", "true");
+        localStorage.setItem("adminEmail", data.email);
+        router.push("/admin/dashboard");
+        return;
+      }
 
-    // Admin check
-    if (data.email === ADMIN_EMAIL && data.password === ADMIN_PASSWORD) {
-      localStorage.setItem("isAdmin", "true");
-      localStorage.setItem("adminEmail", data.email);
-      router.push("/admin/dashboard");
-      return;
+      // Login ke Backend
+      const response = await fetch(
+        "http://localhost:3001/api/auth/login",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: data.email,
+            password: data.password,
+          }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setError("password", {
+          message: result.message || "Login gagal",
+        });
+        return;
+      }
+
+      // Simpan token
+      localStorage.setItem("token", result.token);
+
+      // Simpan user
+      localStorage.setItem("user", JSON.stringify(result.user));
+
+      localStorage.setItem("isLoggedIn", "true");
+
+      alert(result.message);
+
+      router.push("/account");
+    } catch (error) {
+      console.error(error);
+
+      setError("password", {
+        message: "Tidak dapat terhubung ke server.",
+      });
     }
-
-    // User login - TODO: replace with real API
-    // const res = await fetch("/api/auth/login", { method: "POST", body: JSON.stringify(data) });
-    // if (!res.ok) { setError("password", { message: "Invalid email or password" }); return; }
-    localStorage.setItem("isLoggedIn", "true");
-    localStorage.setItem("userEmail", data.email);
-    router.push("/account");
   };
 
   return (
@@ -62,21 +101,25 @@ export default function LoginPage() {
         >
           Sign In
         </h1>
+
         <p className="text-sm text-gray-400 mb-8">
           Access your workspace account
         </p>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+
           {/* Email */}
           <div>
             <label className="block text-sm font-medium text-[#2B2B2B] mb-1.5">
               Email Address
             </label>
+
             <div className="relative">
               <Mail
                 size={15}
                 className="absolute left-3.5 top-3.5 text-gray-300"
               />
+
               <input
                 {...register("email")}
                 type="email"
@@ -84,6 +127,7 @@ export default function LoginPage() {
                 className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-white placeholder:text-gray-300 text-gray-700 focus:border-[#C9A36A] focus:ring-2 focus:ring-[#C9A36A]/20 outline-none transition-all"
               />
             </div>
+
             {errors.email && (
               <p className="text-red-500 text-[11px] mt-1">
                 {errors.email.message}
@@ -97,15 +141,21 @@ export default function LoginPage() {
               <label className="text-sm font-medium text-[#2B2B2B]">
                 Password
               </label>
-              <Link href="#" className="text-xs text-[#C9A36A] hover:underline">
+
+              <Link
+                href="#"
+                className="text-xs text-[#C9A36A] hover:underline"
+              >
                 Forgot password?
               </Link>
             </div>
+
             <div className="relative">
               <Lock
                 size={15}
                 className="absolute left-3.5 top-3.5 text-gray-300"
               />
+
               <input
                 {...register("password")}
                 type="password"
@@ -113,6 +163,7 @@ export default function LoginPage() {
                 className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-white placeholder:text-gray-300 text-gray-700 focus:border-[#C9A36A] focus:ring-2 focus:ring-[#C9A36A]/20 outline-none transition-all"
               />
             </div>
+
             {errors.password && (
               <p className="text-red-500 text-[11px] mt-1">
                 {errors.password.message}
@@ -120,13 +171,14 @@ export default function LoginPage() {
             )}
           </div>
 
-          {/* Sign In Button */}
+          {/* Login Button */}
           <button
             type="submit"
             disabled={isSubmitting}
             className="w-full flex items-center justify-center gap-2 bg-[#C9A36A] hover:bg-[#A8834A] disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors text-sm group"
           >
             {isSubmitting ? "Signing in..." : "Sign In"}
+
             {!isSubmitting && (
               <ArrowRight
                 size={15}
@@ -137,14 +189,18 @@ export default function LoginPage() {
 
           {/* Divider */}
           <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-gray-200" />
+            <div className="flex-1 h-px bg-gray-200"></div>
             <span className="text-xs text-gray-400">or</span>
-            <div className="flex-1 h-px bg-gray-200" />
+            <div className="flex-1 h-px bg-gray-200"></div>
           </div>
 
-          {/* Continue with Google */}
+          {/* Google Login */}
           <button
             type="button"
+            onClick={() => {
+              window.location.href =
+                "http://localhost:3001/api/auth/google";
+            }}
             className="w-full flex items-center justify-center gap-3 border border-gray-200 bg-white hover:bg-gray-50 py-3 rounded-xl transition-colors text-sm text-gray-600 font-medium"
           >
             <svg width="18" height="18" viewBox="0 0 24 24">
@@ -165,6 +221,7 @@ export default function LoginPage() {
                 fill="#EA4335"
               />
             </svg>
+
             Continue with Google
           </button>
         </form>
