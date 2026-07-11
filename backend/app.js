@@ -9,13 +9,13 @@ const userRoutes = require('./src/routes/users.routes');
 
 // this is just future reference
 
-// const propertyRoutes = require('./src/routes/properties.routes');
-// const floorPackRoutes = require('./src/routes/floorpacks.routes');
+const propertyRoutes = require('./src/routes/properties.routes');
+const floorPackRoutes = require('./src/routes/floorpacks.routes');
 // const photoRoutes = require('./src/routes/photos.routes');
-// const amenityRoutes = require('./src/routes/amenities.routes');
-// const bookingRoutes = require('./src/routes/bookings.routes');
+const amenityRoutes = require('./src/routes/amenities.routes');
+const bookingRoutes = require('./src/routes/bookings.routes');
 // const paymentRoutes = require('./src/routes/payments.routes');
-// const notificationRoutes = require('./src/routes/notifications.routes');
+const notificationRoutes = require('./src/routes/notifications.routes');
 
 const app = express();
 
