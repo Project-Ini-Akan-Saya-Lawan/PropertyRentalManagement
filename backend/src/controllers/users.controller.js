@@ -16,6 +16,7 @@ const getUsers = async (req, res) => {
     //     console.error(error);
     //     res.status(500).json({ message: 'Terjadi kesalahan pada server.' });
     // }
+    res.status(500).json({ message: 'will be develop soon' });
 };
 
 // GET profil user yang sedang login
