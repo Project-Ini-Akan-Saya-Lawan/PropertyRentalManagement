@@ -49,6 +49,7 @@ CREATE TABLE Floor_Packs (
     Property_id INT,
     Description TEXT,
     Floor_range VARCHAR(50),
+    Price DECIMAL(12,2) NOT NULL,
     FOREIGN KEY (Property_id) REFERENCES Properties_Towers(Property_id) ON DELETE CASCADE
 );
 

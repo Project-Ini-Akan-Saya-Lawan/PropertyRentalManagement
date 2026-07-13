@@ -46,24 +46,115 @@ const getBookingById = async (req, res) => {
 // POST buat booking baru
 const createBooking = async (req, res) => {
     const userId = req.user.user_id;
-    const { pack_id, floor_booked, start_date, end_date, total_price } = req.body;
+    const { pack_id, floor_booked, start_date, months } = req.body;
 
-    if (!pack_id || !floor_booked || !start_date || !end_date || !total_price) {
+    if (!pack_id || !floor_booked || !start_date || !months) {
         return res.status(400).json({
-            message: 'pack_id, floor_booked, start_date, end_date, dan total_price wajib diisi.'
+            message: "pack_id, floor_booked, start_date, dan months wajib diisi."
+        });
+    }
+
+    if (!Number.isInteger(Number(months)) || Number(months) <= 0) {
+        return res.status(400).json({
+            message: "months harus berupa bilangan bulat lebih dari 0."
         });
     }
 
     try {
-        const result = await pool.query(
-            `INSERT INTO Bookings (user_id, pack_id, floor_booked, start_date, end_date, total_price, status)
-             VALUES ($1, $2, $3, $4, $5, $6, 'pending') RETURNING *`,
-            [userId, pack_id, floor_booked, start_date, end_date, total_price]
+        // Ambil data paket
+        const packResult = await pool.query(
+            `SELECT Price, Floor_range
+             FROM Floor_Packs
+             WHERE Pack_id = $1`,
+            [pack_id]
         );
-        res.status(201).json({ message: 'Booking berhasil dibuat.', data: result.rows[0] });
+
+        if (packResult.rows.length === 0) {
+            return res.status(404).json({
+                message: "Paket tidak ditemukan."
+            });
+        }
+
+        const { price, floor_range } = packResult.rows[0];
+
+        // Validasi floor terhadap floor_range
+        const [minFloor, maxFloor] = floor_range
+            .split("-")
+            .map(Number);
+
+        if (
+            isNaN(minFloor) ||
+            isNaN(maxFloor) ||
+            floor_booked < minFloor ||
+            floor_booked > maxFloor
+        ) {
+            return res.status(400).json({
+                message: `Paket ini hanya berlaku untuk lantai ${minFloor}-${maxFloor}.`
+            });
+        }
+
+        // Hitung end_date
+        const endDate = new Date(start_date);
+        endDate.setMonth(endDate.getMonth() + Number(months));
+
+        // Hitung total harga
+        const total_price = Number(price) * Number(months);
+
+        // Cek booking yang bentrok
+        const existingBooking = await pool.query(
+            `SELECT booking_id
+             FROM Bookings
+             WHERE floor_booked = $1
+               AND status IN ('pending', 'confirmed')
+               AND start_date < $3
+               AND end_date > $2`,
+            [
+                floor_booked,
+                start_date,
+                endDate
+            ]
+        );
+
+        if (existingBooking.rows.length > 0) {
+            return res.status(409).json({
+                message: "Lantai tersebut sudah dibooking pada periode yang dipilih."
+            });
+        }
+
+        // Simpan booking
+        const result = await pool.query(
+            `INSERT INTO Bookings
+            (
+                user_id,
+                pack_id,
+                floor_booked,
+                start_date,
+                end_date,
+                total_price,
+                status
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+            RETURNING *`,
+            [
+                userId,
+                pack_id,
+                floor_booked,
+                start_date,
+                endDate,
+                total_price
+            ]
+        );
+
+        return res.status(201).json({
+            message: "Booking berhasil dibuat.",
+            data: result.rows[0]
+        });
+
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Terjadi kesalahan pada server.' });
+        return res.status(500).json({
+            message: "Terjadi kesalahan pada server."
+        });
     }
 };
 
