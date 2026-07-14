@@ -3,7 +3,7 @@ export interface Workspace {
   slug: string;
   name: string;
   tower: "Wowo Tower" | "Wiwi Tower";
-  pack: "Starter Pack" | "Business Pack" | "Executive Pack";
+  pack: string;
   description: string;
   longDescription: string;
   image: string;

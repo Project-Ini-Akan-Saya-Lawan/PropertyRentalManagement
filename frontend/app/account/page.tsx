@@ -6,12 +6,20 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { User, Pencil } from "lucide-react";
 
-const mockUser = {
-  fullName: "Bahlil",
-  email: "bahlil@bensin.com",
-  phone: "089878785656",
-  company: "PT Bensin Ketan Hitam",
-  position: "Operation Manager",
+type UserData = {
+  fullName: string;
+  email: string;
+  phone: string;
+  company: string;
+  position: string;
+};
+
+const emptyUser: UserData = {
+  fullName: "",
+  email: "",
+  phone: "",
+  company: "",
+  position: "",
 };
 
 const mockBookings = [
@@ -53,9 +61,9 @@ const statusColor: Record<string, string> = {
 
 export default function AccountPage() {
   const router = useRouter();
-  const [user, setUser] = useState(mockUser);
+  const [user, setUser] = useState<UserData>(emptyUser);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState(mockUser);
+  const [form, setForm] = useState<UserData>(emptyUser);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -64,14 +72,34 @@ export default function AccountPage() {
       router.push("/login");
       return;
     }
-    const email = localStorage.getItem("userEmail");
-    if (email) setUser((prev) => ({ ...prev, email }));
+
+    const storedUser = localStorage.getItem("user");
+    if (storedUser) {
+      try {
+        const parsed = JSON.parse(storedUser);
+        const mapped: UserData = {
+          fullName: parsed.username || "",
+          email: parsed.email || "",
+          phone: parsed.phone_number || "",
+          company: parsed.company || "-",
+          position: parsed.position || "-",
+        };
+        setUser(mapped);
+        setForm(mapped);
+      } catch (err) {
+        console.error("Gagal parsing data user dari localStorage", err);
+      }
+    }
+
     setLoaded(true);
   }, [router]);
 
   const handleSave = () => {
     setUser(form);
     setEditing(false);
+    // Catatan: ini baru update state lokal (UI) doang.
+    // Kalau mau perubahan beneran tersimpan, perlu call API
+    // PUT/PATCH ke backend (misal /api/users/me) di sini.
   };
 
   if (!loaded) return null;
@@ -177,7 +205,9 @@ export default function AccountPage() {
                     <span className="text-xs font-semibold text-gray-500 w-28 flex-shrink-0">
                       {label}
                     </span>
-                    <span className="text-xs text-gray-700">{value}</span>
+                    <span className="text-xs text-gray-700">
+                      {value || "-"}
+                    </span>
                   </div>
                 ))}
                 <button className="text-xs text-[#C9A36A] hover:underline pt-1 block">
@@ -228,14 +258,20 @@ export default function AccountPage() {
                   {mockBookings.map((b, i) => (
                     <tr
                       key={b.id}
-                      className={`hover:bg-gray-50/60 transition-colors ${i < mockBookings.length - 1 ? "border-b border-gray-50" : ""}`}
+                      className={`hover:bg-gray-50/60 transition-colors ${
+                        i < mockBookings.length - 1
+                          ? "border-b border-gray-50"
+                          : ""
+                      }`}
                     >
                       <td className="py-3.5 pr-4">
                         <span className="text-xs text-gray-700">{b.id}</span>
                       </td>
                       <td className="py-3.5 pr-4">
                         <p className="text-xs text-gray-700">{b.space}</p>
-                        <p className="text-[11px] text-gray-400">{b.detail}</p>
+                        <p className="text-[11px] text-gray-400">
+                          {b.detail}
+                        </p>
                       </td>
                       <td className="py-3.5 pr-4">
                         <p className="text-xs text-gray-700">{b.date}</p>
@@ -243,13 +279,17 @@ export default function AccountPage() {
                       </td>
                       <td className="py-3.5 pr-4">
                         <span
-                          className={`text-xs font-medium ${statusColor[b.status] ?? "text-gray-500"}`}
+                          className={`text-xs font-medium ${
+                            statusColor[b.status] ?? "text-gray-500"
+                          }`}
                         >
                           {b.status}
                         </span>
                       </td>
                       <td className="py-3.5 text-right">
-                        <span className="text-xs text-gray-700">{b.total}</span>
+                        <span className="text-xs text-gray-700">
+                          {b.total}
+                        </span>
                       </td>
                     </tr>
                   ))}
