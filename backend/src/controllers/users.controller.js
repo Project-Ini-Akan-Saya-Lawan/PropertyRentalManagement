@@ -41,30 +41,31 @@ const getMyProfile = async (req, res) => {
 // PUT update profil sendiri (username, phone_number, dan opsional password baru)
 const updateMyProfile = async (req, res) => {
     const userId = req.user.user_id;
-    const { username, phone_number, password } = req.body;
+    const { username, phone_number } = req.body;
 
     try {
-        let hashedPassword = null;
-        if (password) {
-            hashedPassword = await bcrypt.hash(password, 10);
-        }
-
         const result = await pool.query(
             `UPDATE Users
              SET username = COALESCE($1, username),
-                 phone_number = COALESCE($2, phone_number),
-                 hashed_password = COALESCE($3, hashed_password)
-             WHERE user_id = $4
+                 phone_number = COALESCE($2, phone_number)
+             WHERE user_id = $3
              RETURNING user_id, username, email, phone_number, auth_provider, role_id`,
-            [username, phone_number, hashedPassword, userId]
+            [username, phone_number, userId]
         );
+
         if (result.rows.length === 0) {
             return res.status(404).json({ message: 'User tidak ditemukan.' });
         }
-        res.status(200).json({ message: 'Profil berhasil diperbarui.', data: result.rows[0] });
+
+        return res.status(200).json({
+            message: 'Profil berhasil diperbarui.',
+            data: result.rows[0]
+        });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Terjadi kesalahan pada server.' });
+        return res.status(500).json({
+            message: 'Terjadi kesalahan pada server.'
+        });
     }
 };
 

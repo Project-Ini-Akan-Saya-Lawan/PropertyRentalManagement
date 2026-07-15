@@ -6,7 +6,7 @@ const getMyBookings = async (req, res) => {
     const userId = req.user.user_id;
     try {
         const result = await pool.query(
-            'SELECT * FROM Bookings WHERE user_id = $1 ORDER BY booking_date DESC',
+            'SELECT * FROM Bookings WHERE user_id = $1 AND deleted_at IS NULL ORDER BY booking_date DESC',
             [userId]
         );
         res.status(200).json({ data: result.rows });
@@ -22,7 +22,7 @@ const getBookingById = async (req, res) => {
     const userId = req.user.user_id;
     try {
         const booking = await pool.query(
-            'SELECT * FROM Bookings WHERE booking_id = $1 AND user_id = $2',
+            'SELECT * FROM Bookings WHERE booking_id = $1 AND user_id = $2 AND deleted_at IS NULL',
             [id, userId]
         );
         if (booking.rows.length === 0) {
@@ -100,12 +100,13 @@ const createBooking = async (req, res) => {
         // Hitung total harga
         const total_price = Number(price) * Number(months);
 
-        // Cek booking yang bentrok
+        // Cek booking yang bentrok (booking yang sudah soft-deleted diabaikan)
         const existingBooking = await pool.query(
             `SELECT booking_id
              FROM Bookings
              WHERE floor_booked = $1
                AND status IN ('pending', 'confirmed')
+               AND deleted_at IS NULL
                AND start_date < $3
                AND end_date > $2`,
             [
@@ -171,7 +172,7 @@ const updateBookingStatus = async (req, res) => {
 
     try {
         const result = await pool.query(
-            'UPDATE Bookings SET status = $1 WHERE booking_id = $2 AND user_id = $3 RETURNING *',
+            'UPDATE Bookings SET status = $1 WHERE booking_id = $2 AND user_id = $3 AND deleted_at IS NULL RETURNING *',
             [status, id, userId]
         );
         if (result.rows.length === 0) {
@@ -184,15 +185,41 @@ const updateBookingStatus = async (req, res) => {
     }
 };
 
-// DELETE (batalkan) booking milik sendiri
+// DELETE (soft delete) booking milik sendiri
 const deleteBooking = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.user_id;
+
+    // Status yang tidak boleh dihapus (mis. booking yang sudah selesai)
+    const nonDeletableStatus = ['completed'];
+
     try {
-        const result = await pool.query(
-            'DELETE FROM Bookings WHERE booking_id = $1 AND user_id = $2 RETURNING *',
+        // Cek dulu booking-nya ada, milik user ini, dan belum dihapus,
+        // sekalian ambil status-nya untuk divalidasi.
+        const existing = await pool.query(
+            'SELECT status FROM Bookings WHERE booking_id = $1 AND user_id = $2 AND deleted_at IS NULL',
             [id, userId]
         );
+
+        if (existing.rows.length === 0) {
+            return res.status(404).json({ message: 'Booking tidak ditemukan.' });
+        }
+
+        const currentStatus = existing.rows[0].status;
+        if (nonDeletableStatus.includes(currentStatus)) {
+            return res.status(400).json({
+                message: `Booking dengan status '${currentStatus}' tidak dapat dihapus.`
+            });
+        }
+
+        const result = await pool.query(
+            `UPDATE Bookings
+             SET deleted_at = CURRENT_TIMESTAMP
+             WHERE booking_id = $1 AND user_id = $2 AND deleted_at IS NULL
+             RETURNING *`,
+            [id, userId]
+        );
+
         if (result.rows.length === 0) {
             return res.status(404).json({ message: 'Booking tidak ditemukan.' });
         }

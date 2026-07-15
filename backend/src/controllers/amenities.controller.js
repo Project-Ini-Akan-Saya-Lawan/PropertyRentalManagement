@@ -54,7 +54,11 @@ const updateAmenity = async (req, res) => {
 
 // DELETE amenity
 const deleteAmenity = async (req, res) => {
-    const { id } = req.params;
+    // const { id } = req.params;
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+        return res.status(400).json({ message: 'ID harus berupa angka.' });
+    }
     try {
         const result = await pool.query('DELETE FROM Amenities WHERE amenities_id = $1 RETURNING *', [id]);
         if (result.rows.length === 0) {
