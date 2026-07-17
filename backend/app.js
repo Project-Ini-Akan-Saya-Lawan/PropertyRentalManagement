@@ -3,7 +3,19 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const passport = require('./src/middlewares/passport'); // registrasi strategy Google
+
 const authRoutes = require('./src/routes/auth.routes'); // Import rute auth
+const userRoutes = require('./src/routes/users.routes');
+
+// this is just future reference
+
+const propertyRoutes = require('./src/routes/properties.routes');
+const floorPackRoutes = require('./src/routes/floorpacks.routes');
+// const photoRoutes = require('./src/routes/photos.routes');
+const amenityRoutes = require('./src/routes/amenities.routes');
+const bookingRoutes = require('./src/routes/bookings.routes');
+// const paymentRoutes = require('./src/routes/payments.routes');
+const notificationRoutes = require('./src/routes/notifications.routes');
 
 const app = express();
 
@@ -21,6 +33,17 @@ app.use(passport.initialize());
 
 // Menggunakan rute auth dengan prefix /api/auth
 app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+
+//more of this will add soon
+
+// app.use('/api/properties', propertyRoutes);
+// app.use('/api/floor-packs', floorPackRoutes);
+// app.use('/api/photos', photoRoutes);
+// app.use('/api/amenities', amenityRoutes);
+// app.use('/api/bookings', bookingRoutes);
+// app.use('/api/payments', paymentRoutes);
+// app.use('/api/notifications', notificationRoutes);
 
 app.get('/', (req, res) => {
     res.send('<a href="/api/auth/google">Login dengan Google</a>');
