@@ -26,17 +26,13 @@ export default function WorkspaceCard({ workspace }: { workspace: Workspace }) {
 
       {/* Body */}
       <div className="px-3 pt-2.5 pb-3 flex flex-col flex-1">
-        {/* Name */}
         <h3 className="font-semibold text-sm text-[#2B2B2B] leading-tight">
           {workspace.name}
         </h3>
-
-        {/* Floor range */}
         <p className="text-[11px] text-[#C9A36A] mt-0.5 mb-1.5">
           {workspace.floorRange}
         </p>
 
-        {/* Features */}
         <ul className="space-y-0.5 mb-2 flex-1">
           {workspace.features.slice(0, 4).map((f) => (
             <li
@@ -52,7 +48,6 @@ export default function WorkspaceCard({ workspace }: { workspace: Workspace }) {
           ))}
         </ul>
 
-        {/* Capacity + Price */}
         <div className="flex items-center justify-between pt-2 border-t border-gray-100 mb-2">
           <div className="flex items-center gap-1 text-[11px] text-gray-400">
             <Users size={11} />
@@ -60,11 +55,10 @@ export default function WorkspaceCard({ workspace }: { workspace: Workspace }) {
           </div>
           <p className="text-xs font-bold text-[#2B2B2B]">
             {formatIDR(workspace.monthlyPrice)}
-            <span className="font-normal text-[11px] text-gray-400">/mo</span>
+            <span className="font-normal text-[11px] text-gray-400">/year</span>
           </p>
         </div>
 
-        {/* CTA */}
         <Link
           href={`/workspace/${workspace.slug}`}
           className="block text-center bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-semibold py-2 rounded-md transition-colors"

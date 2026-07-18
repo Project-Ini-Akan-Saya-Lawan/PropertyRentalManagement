@@ -22,9 +22,9 @@ const schema = z.object({
   postcode: z.string().min(3, "Required"),
   email: z.string().email("Invalid email"),
   cardNumber: z.string().min(16, "Required"),
-  expiryName: z.string().min(2, "Required"),
-  paymentDate: z.string().min(4, "MM/YY"),
-  securityCode: z.string().min(3, "Required"),
+  cardholderName: z.string().min(2, "Required"),
+  expiryDate: z.string().min(4, "MM/YY required"),
+  cvv: z.string().min(3, "Required"),
 });
 
 type Form = z.infer<typeof schema>;
@@ -52,6 +52,7 @@ export default function PaymentPage({
     floor?: string;
     type?: string;
     date?: string;
+    commitmentTerms?: string;
   }>({});
   const [done, setDone] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -66,7 +67,6 @@ export default function PaymentPage({
     register,
     handleSubmit,
     setValue,
-    watch,
     formState: { errors },
   } = useForm<Form>({
     resolver: zodResolver(schema),
@@ -78,15 +78,17 @@ export default function PaymentPage({
       .slice(0, 16)
       .replace(/(.{4})/g, "$1 ")
       .trim();
-
   const formatExpiry = (v: string) => {
     const d = v.replace(/\D/g, "").slice(0, 4);
     return d.length >= 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
   };
 
-  const monthly = workspace.monthlyPrice;
-  const tax = monthly * workspace.taxRate;
-  const total = monthly + tax;
+  const years = rentData.commitmentTerms
+    ? parseInt(rentData.commitmentTerms) || 1
+    : 1;
+  const yearly = workspace.monthlyPrice * years;
+  const tax = yearly * workspace.taxRate;
+  const total = yearly + tax;
 
   const onSubmit = async () => {
     setProcessing(true);
@@ -128,20 +130,13 @@ export default function PaymentPage({
                 {[
                   { name: "firstName", placeholder: "First Name" },
                   { name: "surname", placeholder: "Surname" },
-                  { name: "address", placeholder: "Address" },
-                  { name: "stateCity", placeholder: "State/City" },
-                  { name: "countryRegion", placeholder: "Country/Region" },
+                  { name: "address", placeholder: "Address", span: true },
+                  { name: "stateCity", placeholder: "State / City" },
+                  { name: "countryRegion", placeholder: "Country / Region" },
                   { name: "postcode", placeholder: "Postcode" },
-                  { name: "email", placeholder: "E-Mail" },
-                ].map(({ name, placeholder }) => (
-                  <div
-                    key={name}
-                    className={
-                      name === "address" || name === "email"
-                        ? "sm:col-span-2"
-                        : ""
-                    }
-                  >
+                  { name: "email", placeholder: "Email Address", span: true },
+                ].map(({ name, placeholder, span }) => (
+                  <div key={name} className={span ? "sm:col-span-2" : ""}>
                     <input
                       {...register(name as keyof Form)}
                       placeholder={placeholder}
@@ -161,11 +156,9 @@ export default function PaymentPage({
                 Payment Details
               </h2>
 
-              {/* Payment logos */}
+              {/* Card type selector */}
               <div className="flex flex-wrap items-center gap-3 mb-4">
-                <span className="text-xs text-gray-400 self-center">
-                  Card Type
-                </span>
+                <span className="text-xs text-gray-400">Card Type</span>
                 {PAYMENT_LOGOS.map((p) => (
                   <label
                     key={p.id}
@@ -195,10 +188,14 @@ export default function PaymentPage({
               </div>
 
               <div className="grid sm:grid-cols-2 gap-3">
+                {/* Card Number */}
                 <div className="sm:col-span-2">
+                  <label className="text-xs font-medium text-gray-500 block mb-1">
+                    Card Number
+                  </label>
                   <input
                     {...register("cardNumber")}
-                    placeholder="Card Number"
+                    placeholder="1234 5678 9012 3456"
                     onChange={(e) =>
                       setValue("cardNumber", formatCard(e.target.value))
                     }
@@ -210,36 +207,61 @@ export default function PaymentPage({
                     </p>
                   )}
                 </div>
-                <div>
+
+                {/* Cardholder Name */}
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-medium text-gray-500 block mb-1">
+                    Cardholder Name
+                  </label>
                   <input
-                    {...register("expiryName")}
-                    placeholder="Expiry Name"
+                    {...register("cardholderName")}
+                    placeholder="Name as it appears on card"
                     className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
                   />
-                </div>
-                <div>
-                  <input
-                    {...register("paymentDate")}
-                    placeholder="Payment Date (MM/YY)"
-                    onChange={(e) =>
-                      setValue("paymentDate", formatExpiry(e.target.value))
-                    }
-                    className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
-                  />
-                  {errors.paymentDate && (
+                  {errors.cardholderName && (
                     <p className="text-red-500 text-[10px] mt-0.5">
-                      {errors.paymentDate.message}
+                      {errors.cardholderName.message}
                     </p>
                   )}
                 </div>
+
+                {/* Expiry Date */}
                 <div>
+                  <label className="text-xs font-medium text-gray-500 block mb-1">
+                    Expiry Date (MM/YY)
+                  </label>
                   <input
-                    {...register("securityCode")}
+                    {...register("expiryDate")}
+                    placeholder="MM/YY"
+                    onChange={(e) =>
+                      setValue("expiryDate", formatExpiry(e.target.value))
+                    }
+                    className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
+                  />
+                  {errors.expiryDate && (
+                    <p className="text-red-500 text-[10px] mt-0.5">
+                      {errors.expiryDate.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* CVV */}
+                <div>
+                  <label className="text-xs font-medium text-gray-500 block mb-1">
+                    CVV / Security Code
+                  </label>
+                  <input
+                    {...register("cvv")}
                     type="password"
-                    placeholder="Security Code"
+                    placeholder="3 or 4 digits"
                     maxLength={4}
                     className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
                   />
+                  {errors.cvv && (
+                    <p className="text-red-500 text-[10px] mt-0.5">
+                      {errors.cvv.message}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -284,7 +306,7 @@ export default function PaymentPage({
                     />
                   </svg>
                 )}
-                {processing ? "Processing..." : "Pay"}
+                {processing ? "Processing..." : "Pay Now"}
               </button>
             </div>
           </motion.div>
@@ -297,16 +319,38 @@ export default function PaymentPage({
               </h4>
               <div className="space-y-2 text-xs text-gray-500 mb-4">
                 <div className="flex justify-between">
-                  <span>Monthly Fee</span>
-                  <span>{formatIDR(monthly)}</span>
+                  <span>Package</span>
+                  <span className="font-medium text-[#2B2B2B]">
+                    {workspace.name}
+                  </span>
+                </div>
+                {rentData.commitmentTerms && (
+                  <div className="flex justify-between">
+                    <span>Commitment</span>
+                    <span className="font-medium text-[#2B2B2B]">
+                      {rentData.commitmentTerms}
+                    </span>
+                  </div>
+                )}
+                {rentData.floor && (
+                  <div className="flex justify-between">
+                    <span>Floor</span>
+                    <span className="font-medium text-[#2B2B2B]">
+                      {rentData.floor}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span>Annual Fee</span>
+                  <span>{formatIDR(yearly)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Tax + VAT</span>
+                  <span>Tax + VAT (11%)</span>
                   <span>{formatIDR(tax)}</span>
                 </div>
               </div>
               <div className="flex justify-between font-bold text-[#C9A36A] pt-3 border-t border-gray-100">
-                <span className="text-xs">Total amount</span>
+                <span className="text-xs">Total Amount</span>
                 <span className="text-sm">{formatIDR(total)}</span>
               </div>
             </div>

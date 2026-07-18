@@ -6,7 +6,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Mail, Lock, ArrowRight } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 const schema = z.object({
   email: z.string().email("Invalid email"),
@@ -15,75 +16,49 @@ const schema = z.object({
 
 type Form = z.infer<typeof schema>;
 
-const ADMIN_EMAIL = "admin@gmail.com";
-const ADMIN_PASSWORD = "admin123";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirect = searchParams.get("redirect");
 
   const {
     register,
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<Form>({
-    resolver: zodResolver(schema),
-  });
+  } = useForm<Form>({ resolver: zodResolver(schema) });
 
   const onSubmit = async (data: Form) => {
     try {
-      // Admin Login (sementara)
-      if (
-        data.email === ADMIN_EMAIL &&
-        data.password === ADMIN_PASSWORD
-      ) {
-        localStorage.setItem("isAdmin", "true");
-        localStorage.setItem("adminEmail", data.email);
-        router.push("/admin/dashboard");
-        return;
-      }
-
-      // Login ke Backend
-      const response = await fetch(
-        "http://localhost:3001/api/auth/login",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: data.email,
-            password: data.password,
-          }),
-        }
-      );
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: data.email, password: data.password }),
+      });
 
       const result = await response.json();
 
       if (!response.ok) {
-        setError("password", {
-          message: result.message || "Login gagal",
-        });
+        setError("password", { message: result.message || "Login gagal" });
         return;
       }
 
-      // Simpan token
       localStorage.setItem("token", result.token);
-
-      // Simpan user
       localStorage.setItem("user", JSON.stringify(result.user));
-
       localStorage.setItem("isLoggedIn", "true");
 
-      alert(result.message);
-
-      router.push("/account");
+      // Cek role_id — 1 = admin
+      if (result.user.role_id === 1) {
+        localStorage.setItem("isAdmin", "true");
+        router.push("/admin/dashboard");
+      } else {
+        router.push(redirect || "/account");
+      }
     } catch (error) {
       console.error(error);
-
-      setError("password", {
-        message: "Tidak dapat terhubung ke server.",
-      });
+      setError("password", { message: "Tidak dapat terhubung ke server." });
     }
   };
 
@@ -101,25 +76,21 @@ export default function LoginPage() {
         >
           Sign In
         </h1>
-
         <p className="text-sm text-gray-400 mb-8">
           Access your workspace account
         </p>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-
           {/* Email */}
           <div>
             <label className="block text-sm font-medium text-[#2B2B2B] mb-1.5">
               Email Address
             </label>
-
             <div className="relative">
               <Mail
                 size={15}
                 className="absolute left-3.5 top-3.5 text-gray-300"
               />
-
               <input
                 {...register("email")}
                 type="email"
@@ -127,7 +98,6 @@ export default function LoginPage() {
                 className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-white placeholder:text-gray-300 text-gray-700 focus:border-[#C9A36A] focus:ring-2 focus:ring-[#C9A36A]/20 outline-none transition-all"
               />
             </div>
-
             {errors.email && (
               <p className="text-red-500 text-[11px] mt-1">
                 {errors.email.message}
@@ -141,21 +111,18 @@ export default function LoginPage() {
               <label className="text-sm font-medium text-[#2B2B2B]">
                 Password
               </label>
-
               <Link
-                href="#"
+                href="/forgot-password"
                 className="text-xs text-[#C9A36A] hover:underline"
               >
                 Forgot password?
               </Link>
             </div>
-
             <div className="relative">
               <Lock
                 size={15}
                 className="absolute left-3.5 top-3.5 text-gray-300"
               />
-
               <input
                 {...register("password")}
                 type="password"
@@ -163,7 +130,6 @@ export default function LoginPage() {
                 className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-white placeholder:text-gray-300 text-gray-700 focus:border-[#C9A36A] focus:ring-2 focus:ring-[#C9A36A]/20 outline-none transition-all"
               />
             </div>
-
             {errors.password && (
               <p className="text-red-500 text-[11px] mt-1">
                 {errors.password.message}
@@ -178,7 +144,6 @@ export default function LoginPage() {
             className="w-full flex items-center justify-center gap-2 bg-[#C9A36A] hover:bg-[#A8834A] disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors text-sm group"
           >
             {isSubmitting ? "Signing in..." : "Sign In"}
-
             {!isSubmitting && (
               <ArrowRight
                 size={15}
@@ -189,17 +154,16 @@ export default function LoginPage() {
 
           {/* Divider */}
           <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-gray-200"></div>
+            <div className="flex-1 h-px bg-gray-200" />
             <span className="text-xs text-gray-400">or</span>
-            <div className="flex-1 h-px bg-gray-200"></div>
+            <div className="flex-1 h-px bg-gray-200" />
           </div>
 
           {/* Google Login */}
           <button
             type="button"
             onClick={() => {
-              window.location.href =
-                "http://localhost:3001/api/auth/google";
+              window.location.href = `${API_URL}/api/auth/google`;
             }}
             className="w-full flex items-center justify-center gap-3 border border-gray-200 bg-white hover:bg-gray-50 py-3 rounded-xl transition-colors text-sm text-gray-600 font-medium"
           >
@@ -221,7 +185,6 @@ export default function LoginPage() {
                 fill="#EA4335"
               />
             </svg>
-
             Continue with Google
           </button>
         </form>
@@ -237,5 +200,13 @@ export default function LoginPage() {
         </p>
       </motion.div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

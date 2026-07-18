@@ -1,26 +1,20 @@
 "use client";
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Bell,
   CheckCircle,
-  XCircle,
-  Clock,
   Building2,
   DollarSign,
   User,
-  ChevronRight,
   Search,
   Trash2,
   MailOpen,
   Mail,
-  Filter,
 } from "lucide-react";
 
-// ── Types ──────────────────────────────────────────────────────────────────
 interface Notification {
   id: string;
-  type: "booking" | "payment" | "property" | "user" | "system";
+  type: "booking" | "payment" | "property" | "user";
   subject: string;
   preview: string;
   body: string;
@@ -37,7 +31,6 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   payment: <DollarSign size={15} className="text-green-500" />,
   property: <Building2 size={15} className="text-blue-500" />,
   user: <User size={15} className="text-purple-500" />,
-  system: <Bell size={15} className="text-gray-400" />,
 };
 
 const TYPE_BG: Record<string, string> = {
@@ -45,7 +38,6 @@ const TYPE_BG: Record<string, string> = {
   payment: "bg-green-50",
   property: "bg-blue-50",
   user: "bg-purple-50",
-  system: "bg-gray-100",
 };
 
 const TAG_STYLE: Record<string, string> = {
@@ -55,32 +47,70 @@ const TAG_STYLE: Record<string, string> = {
   "New User": "bg-purple-50 text-purple-700",
   Refund: "bg-red-50 text-red-600",
   Property: "bg-blue-50 text-blue-700",
-  System: "bg-gray-100 text-gray-600",
 };
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  // TODO: fetch from API
-  // useEffect(() => {
-  //   fetch("/api/admin/notifications").then(r => r.json()).then(setNotifications);
-  // }, []);
   const [selected, setSelected] = useState<Notification | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    fetch(`${API_URL}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) {
+          const mapped: Notification[] = result.data.map(
+            (n: {
+              notifications_id: number;
+              title: string;
+              message: string;
+              is_read: boolean;
+              created_at: string;
+            }) => ({
+              id: String(n.notifications_id),
+              type: "booking" as const,
+              subject: n.title,
+              preview: n.message.slice(0, 60) + "...",
+              body: n.message,
+              from: "Rupiah Building System",
+              fromEmail: "system@rupiahbuilding.com",
+              time: new Date(n.created_at).toLocaleTimeString("id-ID", {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+              date: new Date(n.created_at).toLocaleDateString("id-ID"),
+              read: n.is_read,
+            }),
+          );
+          setNotifications(mapped);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch notifications:", err));
+  }, []);
 
   const markRead = (id: string) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
     );
+    // TODO: PATCH /api/notifications/:id/read
   };
 
   const markAllRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    // TODO: PATCH /api/notifications/read-all
   };
 
   const deleteNotif = (id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     if (selected?.id === id) setSelected(null);
+    // TODO: DELETE /api/notifications/:id
   };
 
   const handleSelect = (n: Notification) => {
@@ -105,7 +135,6 @@ export default function NotificationsPage() {
 
   return (
     <div>
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <h1
@@ -128,11 +157,9 @@ export default function NotificationsPage() {
         </button>
       </div>
 
-      {/* Main layout - like Gmail */}
       <div className="flex gap-4 h-[calc(100vh-220px)] min-h-[500px]">
-        {/* ── Left: Notification List ── */}
+        {/* Left */}
         <div className="w-80 flex-shrink-0 flex flex-col border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden bg-white">
-          {/* Search + Filter */}
           <div className="p-3 border-b border-[#C9A36A]/30">
             <div className="relative mb-2">
               <Search
@@ -147,25 +174,22 @@ export default function NotificationsPage() {
               />
             </div>
             <div className="flex gap-1 flex-wrap">
-              {["All", "Unread", "Booking", "Payment", "User", "System"].map(
-                (f) => (
-                  <button
-                    key={f}
-                    onClick={() => setFilter(f)}
-                    className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-colors border-b-2 ${
-                      filter === f
-                        ? "border-[#C9A36A] text-[#C9A36A] bg-[#C9A36A]/5"
-                        : "border-transparent bg-[#F5F0E8] text-[#2B2B2B]/60 hover:bg-[#C9A36A]/10 hover:text-[#2B2B2B]"
-                    }`}
-                  >
-                    {f}
-                  </button>
-                ),
-              )}
+              {["All", "Unread", "Booking", "Payment", "User"].map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-colors border-b-2 ${
+                    filter === f
+                      ? "border-[#C9A36A] text-[#C9A36A] bg-[#C9A36A]/5"
+                      : "border-transparent bg-[#F5F0E8] text-[#2B2B2B]/60 hover:bg-[#C9A36A]/10 hover:text-[#2B2B2B]"
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* List */}
           <div className="flex-1 overflow-y-auto divide-y divide-[#C9A36A]/30">
             {filtered.length === 0 ? (
               <div className="py-12 text-center">
@@ -183,14 +207,13 @@ export default function NotificationsPage() {
                       : "hover:bg-[#F5F0E8]/60"
                   } ${!n.read ? "bg-[#F5F0E8]/40" : ""}`}
                 >
-                  {/* Icon */}
                   <div
-                    className={`w-8 h-8 rounded-full ${TYPE_BG[n.type]} flex items-center justify-center flex-shrink-0 mt-0.5`}
+                    className={`w-8 h-8 rounded-full ${TYPE_BG[n.type] || "bg-gray-100"} flex items-center justify-center flex-shrink-0 mt-0.5`}
                   >
-                    {TYPE_ICON[n.type]}
+                    {TYPE_ICON[n.type] || (
+                      <Bell size={15} className="text-gray-400" />
+                    )}
                   </div>
-
-                  {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1 mb-0.5">
                       <p
@@ -215,11 +238,10 @@ export default function NotificationsPage() {
           </div>
         </div>
 
-        {/* ── Right: Notification Detail ── */}
+        {/* Right */}
         <div className="flex-1 border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden bg-white flex flex-col">
           {selected ? (
             <>
-              {/* Detail header */}
               <div className="px-6 py-4 border-b border-[#C9A36A]/30 flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
@@ -252,7 +274,6 @@ export default function NotificationsPage() {
                 </button>
               </div>
 
-              {/* Detail body */}
               <div className="flex-1 overflow-y-auto px-6 py-5">
                 <div className="bg-[#F5F0E8]/40 rounded-2xl p-5">
                   <pre className="text-sm text-[#2B2B2B]/80 leading-relaxed whitespace-pre-wrap font-sans">
@@ -261,7 +282,6 @@ export default function NotificationsPage() {
                 </div>
               </div>
 
-              {/* Footer actions */}
               <div className="px-6 py-4 border-t border-[#C9A36A]/30 flex gap-2">
                 <button
                   onClick={() => deleteNotif(selected.id)}
@@ -278,7 +298,6 @@ export default function NotificationsPage() {
               </div>
             </>
           ) : (
-            /* Empty state */
             <div className="flex-1 flex flex-col items-center justify-center gap-3">
               <div className="w-16 h-16 bg-[#C9A36A]/10 rounded-full flex items-center justify-center">
                 <Mail size={28} className="text-[#C9A36A]" />
