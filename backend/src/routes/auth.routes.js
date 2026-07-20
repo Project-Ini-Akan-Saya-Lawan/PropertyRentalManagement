@@ -1,36 +1,37 @@
 // src/routes/auth.routes.js
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const passport = require('../middlewares/passport');
-const authenticateJWT = require('../middlewares/authenticatejwt');
-const authController = require('../controllers/auth.controller');
+const passport = require("../middlewares/passport");
+const authenticateJWT = require("../middlewares/authenticatejwt");
+const authController = require("../controllers/auth.controller");
 
-// Auth lokal (email + password)
-router.post('/signup', authController.signup);
-router.post('/login', authController.login);
+router.post("/signup", authController.signup);
+router.post("/login", authController.login);
+router.post("/change-password", authenticateJWT, authController.changePassword);
 
-// Auth via Google OAuth
 router.get(
-    '/google',
-    passport.authenticate('google', { scope: ['profile', 'email'], session: false })
+  "/google",
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+    session: false,
+  }),
 );
 
 router.get(
-    '/google/callback',
-    passport.authenticate('google', { session: false, failureRedirect: '/api/auth/google/failure' }),
-    authController.googleCallback
+  "/google/callback",
+  passport.authenticate("google", {
+    session: false,
+    failureRedirect: "/api/auth/google/failure",
+  }),
+  authController.googleCallback,
 );
 
-router.get('/google/failure', (req, res) => {
-    res.status(401).json({ message: 'Login Google gagal.' });
+router.get("/google/failure", (req, res) => {
+  res.status(401).json({ message: "Google login failed." });
 });
 
-// Contoh route yang butuh token JWT (signup/login lokal maupun Google)
-router.get('/me', authenticateJWT, (req, res) => {
-    res.status(200).json({
-        message: 'Data user dari token JWT',
-        user: req.user
-    });
+router.get("/me", authenticateJWT, (req, res) => {
+  res.status(200).json({ message: "User data from JWT token", user: req.user });
 });
 
 module.exports = router;

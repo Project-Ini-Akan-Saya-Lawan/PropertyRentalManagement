@@ -1,10 +1,8 @@
 "use client";
-
-import { useState, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
   User,
   Shield,
-  Settings,
   CreditCard,
   Save,
   ChevronRight,
@@ -15,8 +13,7 @@ import {
 
 const inputCls =
   "w-full border-2 border-[#C9A36A]/30 rounded-xl px-4 py-2.5 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none transition-all bg-white";
-const selectCls =
-  "border-2 border-[#C9A36A]/30 rounded-xl px-4 py-2.5 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none transition-all bg-white";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
 const SIDEBAR_ITEMS = [
   { key: "profile", label: "Profile", icon: User },
@@ -24,7 +21,6 @@ const SIDEBAR_ITEMS = [
   { key: "payment", label: "Payment Gateways", icon: CreditCard },
 ];
 
-// ── Payment Gateways Tab Component ─────────────────────────────────────────
 const INITIAL_GATEWAYS = [
   {
     id: "bca",
@@ -108,15 +104,12 @@ function PaymentGatewaysTab() {
 
   return (
     <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-6">
-      <div className="flex items-center justify-between mb-5">
-        <h2
-          className="text-base font-bold text-[#2B2B2B]"
-          style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
-        >
-          Payment Gateways
-        </h2>
-      </div>
-
+      <h2
+        className="text-base font-bold text-[#2B2B2B] mb-5"
+        style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
+      >
+        Payment Gateways
+      </h2>
       <div className="grid md:grid-cols-2 gap-4">
         {gateways.map((g) => (
           <div
@@ -144,7 +137,6 @@ function PaymentGatewaysTab() {
                 {g.active ? "ACTIVE" : "INACTIVE"}
               </button>
             </div>
-
             <div className="space-y-1.5 mb-4">
               <div className="flex justify-between text-xs">
                 <span className="text-[#2B2B2B]/50">Merchant ID</span>
@@ -161,7 +153,6 @@ function PaymentGatewaysTab() {
                 </span>
               </div>
             </div>
-
             <button
               onClick={() => setConfigModal(g)}
               className="w-full border-2 border-[#C9A36A]/30 text-[#2B2B2B] text-xs font-bold py-2 rounded-xl hover:bg-[#C9A36A]/5 hover:border-[#C9A36A] transition-colors"
@@ -172,7 +163,6 @@ function PaymentGatewaysTab() {
         ))}
       </div>
 
-      {/* Configure Modal */}
       {configModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -217,12 +207,6 @@ function PaymentGatewaysTab() {
                   <option>Staging</option>
                 </select>
               </div>
-              <div className="bg-[#F5F0E8] rounded-xl p-3">
-                <p className="text-[10px] text-[#2B2B2B]/60">
-                  {/* TODO: PATCH /api/admin/settings/payment-gateways/:id */}
-                  Changes will be applied after connecting to backend API.
-                </p>
-              </div>
               <div className="flex gap-3">
                 <button
                   onClick={() => setConfigModal(null)}
@@ -251,7 +235,11 @@ export default function SettingsPage() {
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfPw, setShowConfPw] = useState(false);
   const [saved, setSaved] = useState(false);
-
+  const [pwSaved, setPwSaved] = useState(false);
+  const [oldPw, setOldPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confPw, setConfPw] = useState("");
+  const [pwError, setPwError] = useState("");
   const [profile, setProfile] = useState({
     fullName: "",
     jobTitle: "",
@@ -260,15 +248,86 @@ export default function SettingsPage() {
     company: "PT Rupiah Building Jababeka",
   });
 
-  const handleSave = () => {
-    // TODO: PATCH /api/admin/settings/profile
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    fetch(`${API_URL}/api/users/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) {
+          setProfile((prev) => ({
+            ...prev,
+            fullName: result.data.username || "",
+            email: result.data.email || "",
+            phone: result.data.phone_number || "",
+          }));
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  const handleSave = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      await fetch(`${API_URL}/api/users/me`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          username: profile.fullName,
+          phone_number: profile.phone,
+        }),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    setPwError("");
+    if (newPw !== confPw) {
+      setPwError("Passwords do not match.");
+      return;
+    }
+    if (newPw.length < 8) {
+      setPwError("Password must be at least 8 characters.");
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/api/auth/change-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ oldPassword: oldPw, newPassword: newPw }),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        setPwError(result.message || "Failed to update password.");
+        return;
+      }
+      setPwSaved(true);
+      setTimeout(() => setPwSaved(false), 2500);
+      setOldPw("");
+      setNewPw("");
+      setConfPw("");
+    } catch (err) {
+      console.error(err);
+      setPwError("Cannot connect to server.");
+    }
   };
 
   return (
     <div>
-      {/* Header */}
       <div className="mb-6">
         <h1
           className="text-2xl font-bold text-[#2B2B2B]"
@@ -283,7 +342,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="flex gap-5">
-        {/* ── Sidebar ── */}
+        {/* Sidebar */}
         <div className="w-52 flex-shrink-0">
           <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden">
             {SIDEBAR_ITEMS.map((item, i) => {
@@ -296,11 +355,7 @@ export default function SettingsPage() {
                     i < SIDEBAR_ITEMS.length - 1
                       ? "border-b border-[#C9A36A]/10"
                       : ""
-                  } ${
-                    activeTab === item.key
-                      ? "bg-[#C9A36A]/10 text-[#C9A36A]"
-                      : "text-[#2B2B2B]/60 hover:bg-[#F5F0E8] hover:text-[#2B2B2B]"
-                  }`}
+                  } ${activeTab === item.key ? "bg-[#C9A36A]/10 text-[#C9A36A]" : "text-[#2B2B2B]/60 hover:bg-[#F5F0E8] hover:text-[#2B2B2B]"}`}
                 >
                   <Icon
                     size={15}
@@ -316,9 +371,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* ── Content ── */}
+        {/* Content */}
         <div className="flex-1 space-y-5">
-          {/* ── Profile Tab ── */}
+          {/* Profile Tab */}
           {activeTab === "profile" && (
             <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-6">
               <h2
@@ -327,8 +382,6 @@ export default function SettingsPage() {
               >
                 Profile Settings
               </h2>
-
-              {/* Avatar */}
               <div className="flex items-center gap-5 mb-6 pb-6 border-b border-[#C9A36A]/10">
                 <div className="w-20 h-20 rounded-full bg-[#C9A36A]/20 flex items-center justify-center flex-shrink-0">
                   <User size={36} className="text-[#C9A36A]" />
@@ -342,8 +395,6 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
-
-              {/* Form */}
               <div className="grid grid-cols-2 gap-4 mb-5">
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
@@ -380,8 +431,8 @@ export default function SettingsPage() {
                     onChange={(e) =>
                       setProfile({ ...profile, email: e.target.value })
                     }
-                    placeholder="admin@rupiahbuilding.com"
                     type="email"
+                    placeholder="admin@rupiahbuilding.com"
                     className={inputCls}
                   />
                 </div>
@@ -411,7 +462,6 @@ export default function SettingsPage() {
                   />
                 </div>
               </div>
-
               <div className="flex justify-end">
                 <button
                   onClick={handleSave}
@@ -421,14 +471,13 @@ export default function SettingsPage() {
                       : "bg-[#C9A36A] hover:bg-[#A8834A] text-white"
                   }`}
                 >
-                  <Save size={13} />
-                  {saved ? "Saved!" : "Save Changes"}
+                  <Save size={13} /> {saved ? "Saved!" : "Save Changes"}
                 </button>
               </div>
             </div>
           )}
 
-          {/* ── Security Tab ── */}
+          {/* Security Tab */}
           {activeTab === "security" && (
             <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-6">
               <h2
@@ -437,7 +486,6 @@ export default function SettingsPage() {
               >
                 Security Settings
               </h2>
-
               <div className="space-y-4 mb-5">
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
@@ -446,6 +494,8 @@ export default function SettingsPage() {
                   <div className="relative">
                     <input
                       type={showOldPw ? "text" : "password"}
+                      value={oldPw}
+                      onChange={(e) => setOldPw(e.target.value)}
                       placeholder="Enter current password"
                       className={inputCls + " pr-10"}
                     />
@@ -464,6 +514,8 @@ export default function SettingsPage() {
                   <div className="relative">
                     <input
                       type={showNewPw ? "text" : "password"}
+                      value={newPw}
+                      onChange={(e) => setNewPw(e.target.value)}
                       placeholder="Enter new password"
                       className={inputCls + " pr-10"}
                     />
@@ -482,6 +534,8 @@ export default function SettingsPage() {
                   <div className="relative">
                     <input
                       type={showConfPw ? "text" : "password"}
+                      value={confPw}
+                      onChange={(e) => setConfPw(e.target.value)}
                       placeholder="Confirm new password"
                       className={inputCls + " pr-10"}
                     />
@@ -494,7 +548,6 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
-
               <div className="bg-[#F5F0E8] rounded-xl p-4 mb-5">
                 <p className="text-xs font-bold text-[#C9A36A] mb-1">
                   Password Requirements
@@ -516,16 +569,25 @@ export default function SettingsPage() {
                   ))}
                 </ul>
               </div>
-
+              {pwError && (
+                <p className="text-red-500 text-xs mb-3">{pwError}</p>
+              )}
               <div className="flex justify-end">
-                <button className="flex items-center gap-2 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-bold px-6 py-2.5 rounded-xl transition-colors">
-                  <Save size={13} /> Update Password
+                <button
+                  onClick={handleUpdatePassword}
+                  className={`flex items-center gap-2 text-xs font-bold px-6 py-2.5 rounded-xl transition-all ${
+                    pwSaved
+                      ? "bg-green-500 text-white"
+                      : "bg-[#C9A36A] hover:bg-[#A8834A] text-white"
+                  }`}
+                >
+                  <Save size={13} /> {pwSaved ? "Updated!" : "Update Password"}
                 </button>
               </div>
             </div>
           )}
 
-          {/* ── Payment Gateways Tab ── */}
+          {/* Payment Gateways Tab */}
           {activeTab === "payment" && <PaymentGatewaysTab />}
         </div>
       </div>
