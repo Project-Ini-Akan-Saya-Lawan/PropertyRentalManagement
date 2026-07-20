@@ -16,12 +16,13 @@ const schema = z.object({
 
 type Form = z.infer<typeof schema>;
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect");
+  const googleError = searchParams.get("error") === "google_failed";
 
   const {
     register,
@@ -79,6 +80,13 @@ function LoginForm() {
         <p className="text-sm text-gray-400 mb-8">
           Access your workspace account
         </p>
+
+        {googleError && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-500">
+            Login dengan Google gagal atau dibatalkan. Silakan coba lagi atau
+            gunakan email &amp; password.
+          </div>
+        )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {/* Email */}
