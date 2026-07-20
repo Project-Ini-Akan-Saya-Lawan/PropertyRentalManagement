@@ -39,13 +39,13 @@ app.use("/api/users", userRoutes);
 
 //more of this will add soon
 
-// app.use("/api/properties", propertyRoutes);
-// app.use("/api/floor-packs", floorPackRoutes);
-// // app.use("/api/photos", photoRoutes);
-// app.use("/api/amenities", amenityRoutes);
-// app.use("/api/bookings", bookingRoutes);
-// // app.use("/api/payments", paymentRoutes);
-// app.use("/api/notifications", notificationRoutes);
+app.use("/api/properties", propertyRoutes);
+app.use("/api/floor-packs", floorPackRoutes);
+// app.use("/api/photos", photoRoutes);
+app.use("/api/amenities", amenityRoutes);
+app.use("/api/bookings", bookingRoutes);
+// app.use("/api/payments", paymentRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.get("/", (req, res) => {
   res.send('<a href="/api/auth/google">Login dengan Google</a>');
