@@ -6,43 +6,31 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { User, Pencil } from "lucide-react";
 
-const mockUser = {
-  fullName: "Bahlil",
-  email: "bahlil@bensin.com",
-  phone: "089878785656",
-  company: "PT Bensin Ketan Hitam",
-  position: "Operation Manager",
+type UserData = {
+  fullName: string;
+  email: string;
+  phone: string;
+  company: string;
+  position: string;
 };
 
-const mockBookings = [
-  {
-    id: "BK-2206-003",
-    space: "Business Office",
-    detail: "Tower Wowo, Floor 17-19",
-    date: "22 June 2026",
-    time: "14.00 WIB",
-    status: "Completed",
-    total: "Rp 12.000.000",
-  },
-  {
-    id: "BK-2206-002",
-    space: "Starter Office",
-    detail: "Tower Wowi, Floor 8",
-    date: "22 June 2026",
-    time: "12.00 WIB",
-    status: "Progressing",
-    total: "Rp 2.000.000",
-  },
-  {
-    id: "BK-2206-001",
-    space: "Executive Office",
-    detail: "Tower Wowo, Floor 29",
-    date: "22 June 2026",
-    time: "09.00 wib",
-    status: "Completed",
-    total: "Rp 300.000.000",
-  },
-];
+type Booking = {
+  id: string;
+  space: string;
+  detail: string;
+  date: string;
+  time: string;
+  status: string;
+  total: string;
+};
+
+const emptyUser: UserData = {
+  fullName: "",
+  email: "",
+  phone: "",
+  company: "",
+  position: "",
+};
 
 const statusColor: Record<string, string> = {
   Completed: "text-green-600",
@@ -51,12 +39,16 @@ const statusColor: Record<string, string> = {
   Pending: "text-orange-500",
 };
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+
 export default function AccountPage() {
   const router = useRouter();
-  const [user, setUser] = useState(mockUser);
+  const [user, setUser] = useState<UserData>(emptyUser);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState(mockUser);
+  const [form, setForm] = useState<UserData>(emptyUser);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [userId, setUserId] = useState<string>("");
 
   useEffect(() => {
     const isLoggedIn = localStorage.getItem("isLoggedIn");
@@ -64,14 +56,129 @@ export default function AccountPage() {
       router.push("/login");
       return;
     }
-    const email = localStorage.getItem("userEmail");
-    if (email) setUser((prev) => ({ ...prev, email }));
-    setLoaded(true);
+
+    const token = localStorage.getItem("token");
+
+    // Fetch profil dari API
+    fetch(`${API_URL}/api/users/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        const parsed = result.data;
+        if (!parsed) return;
+        const mapped: UserData = {
+          fullName: parsed.username || "",
+          email: parsed.email || "",
+          phone: parsed.phone_number || "",
+          company: "-",
+          position: "-",
+        };
+        setUser(mapped);
+        setForm(mapped);
+        setUserId(String(parsed.user_id || ""));
+        // Update localStorage juga
+        localStorage.setItem("user", JSON.stringify(parsed));
+      })
+      .catch(() => {
+        // Fallback ke localStorage kalau API gagal
+        const storedUser = localStorage.getItem("user");
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser);
+            const mapped: UserData = {
+              fullName: parsed.username || "",
+              email: parsed.email || "",
+              phone: parsed.phone_number || "",
+              company: "-",
+              position: "-",
+            };
+            setUser(mapped);
+            setForm(mapped);
+            setUserId(String(parsed.user_id || ""));
+          } catch {}
+        }
+      })
+      .finally(() => setLoaded(true));
+
+    // Fetch booking history
+    fetch(`${API_URL}/api/bookings`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) {
+          const mapped = result.data.map(
+            (b: {
+              booking_id: string;
+              pack_id: string;
+              floor_booked: string;
+              start_date: string;
+              end_date: string;
+              total_price: number;
+              status: string;
+            }) => ({
+              id: `BK-${b.booking_id}`,
+              space: `Pack ID: ${b.pack_id}`,
+              detail: `Floor ${b.floor_booked}`,
+              date: new Date(b.start_date).toLocaleDateString("id-ID"),
+              time: new Date(b.end_date).toLocaleDateString("id-ID"),
+              status:
+                b.status === "confirmed"
+                  ? "Progressing"
+                  : b.status === "completed"
+                    ? "Completed"
+                    : b.status === "cancelled"
+                      ? "Cancelled"
+                      : "Pending",
+              total: `Rp ${Number(b.total_price).toLocaleString("id-ID")}`,
+            }),
+          );
+          setBookings(mapped);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch bookings", err));
   }, [router]);
 
-  const handleSave = () => {
-    setUser(form);
-    setEditing(false);
+  const handleSave = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/api/users/me`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          username: form.fullName,
+          phone_number: form.phone,
+        }),
+      });
+
+      const result = await res.json();
+
+      if (res.ok && result.data) {
+        // Update localStorage dengan data terbaru dari server
+        localStorage.setItem("user", JSON.stringify(result.data));
+        const updated: UserData = {
+          fullName: result.data.username || "",
+          email: result.data.email || "",
+          phone: result.data.phone_number || "",
+          company: form.company,
+          position: form.position,
+        };
+        setUser(updated);
+        setForm(updated);
+      } else {
+        setUser(form);
+      }
+
+      setEditing(false);
+    } catch (err) {
+      console.error(err);
+      setUser(form);
+      setEditing(false);
+    }
   };
 
   if (!loaded) return null;
@@ -79,7 +186,6 @@ export default function AccountPage() {
   return (
     <div className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8">
-        {/* Page Title */}
         <motion.h1
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -89,14 +195,13 @@ export default function AccountPage() {
         </motion.h1>
 
         <div className="grid lg:grid-cols-3 gap-6">
-          {/* ── Left: Profile Information ── */}
+          {/* Profile */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
             className="border border-[#C9A36A]/40 rounded-lg p-5"
           >
-            {/* Header */}
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-sm font-semibold text-[#C9A36A]">
                 Profile Information
@@ -108,8 +213,7 @@ export default function AccountPage() {
                 }}
                 className="flex items-center gap-1.5 text-xs border border-gray-300 text-gray-500 hover:border-[#C9A36A] hover:text-[#C9A36A] px-3 py-1.5 rounded transition-colors"
               >
-                <Pencil size={11} />
-                Edit Profile
+                <Pencil size={11} /> Edit Profile
               </button>
             </div>
 
@@ -118,17 +222,13 @@ export default function AccountPage() {
               <div className="w-14 h-14 rounded-full bg-[#C9A36A]/10 border border-[#C9A36A]/20 flex items-center justify-center mb-2">
                 <User size={26} className="text-[#C9A36A]" />
               </div>
-              <button className="text-xs text-[#C9A36A] hover:underline">
-                Change Profile Picture
-              </button>
             </div>
 
-            {/* Fields */}
             {editing ? (
               <div className="space-y-3">
                 {[
                   { label: "Full Name", key: "fullName" },
-                  { label: "E-mail Address", key: "email" },
+                  { label: "Email", key: "email" },
                   { label: "Phone Number", key: "phone" },
                   { label: "Company", key: "company" },
                   { label: "Position", key: "position" },
@@ -168,7 +268,7 @@ export default function AccountPage() {
               <div className="space-y-2.5">
                 {[
                   { label: "Full Name", value: user.fullName },
-                  { label: "E-mail Address", value: user.email },
+                  { label: "Email", value: user.email },
                   { label: "Phone Number", value: user.phone },
                   { label: "Company", value: user.company },
                   { label: "Position", value: user.position },
@@ -177,82 +277,90 @@ export default function AccountPage() {
                     <span className="text-xs font-semibold text-gray-500 w-28 flex-shrink-0">
                       {label}
                     </span>
-                    <span className="text-xs text-gray-700">{value}</span>
+                    <span className="text-xs text-gray-700">
+                      {value || "-"}
+                    </span>
                   </div>
                 ))}
-                <button className="text-xs text-[#C9A36A] hover:underline pt-1 block">
-                  Change Password
-                </button>
               </div>
             )}
           </motion.div>
 
-          {/* ── Right: Booking History ── */}
+          {/* Booking History */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.15 }}
             className="lg:col-span-2 border border-[#C9A36A]/40 rounded-lg p-5"
           >
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-sm font-semibold text-[#C9A36A]">
-                Booking History
-              </h2>
-              <button className="text-xs border border-[#C9A36A] text-[#C9A36A] hover:bg-[#C9A36A] hover:text-white px-4 py-1.5 rounded transition-colors font-semibold">
-                View All Bookings
-              </button>
-            </div>
-
+            <h2 className="text-sm font-semibold text-[#C9A36A] mb-5">
+              Booking History
+            </h2>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-100">
-                    <th className="text-left text-xs font-semibold text-gray-600 pb-2.5 pr-4">
-                      Booking ID
-                    </th>
-                    <th className="text-left text-xs font-semibold text-gray-600 pb-2.5 pr-4">
-                      Space Type
-                    </th>
-                    <th className="text-left text-xs font-semibold text-gray-600 pb-2.5 pr-4">
-                      Date
-                    </th>
-                    <th className="text-left text-xs font-semibold text-gray-600 pb-2.5 pr-4">
-                      Status
-                    </th>
-                    <th className="text-right text-xs font-semibold text-gray-600 pb-2.5">
-                      Total
-                    </th>
+                    {[
+                      "Booking ID",
+                      "Space Type",
+                      "Date",
+                      "Status",
+                      "Total",
+                    ].map((h, i) => (
+                      <th
+                        key={h}
+                        className={`text-xs font-semibold text-gray-600 pb-2.5 ${i === 4 ? "text-right" : "text-left pr-4"}`}
+                      >
+                        {h}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {mockBookings.map((b, i) => (
-                    <tr
-                      key={b.id}
-                      className={`hover:bg-gray-50/60 transition-colors ${i < mockBookings.length - 1 ? "border-b border-gray-50" : ""}`}
-                    >
-                      <td className="py-3.5 pr-4">
-                        <span className="text-xs text-gray-700">{b.id}</span>
-                      </td>
-                      <td className="py-3.5 pr-4">
-                        <p className="text-xs text-gray-700">{b.space}</p>
-                        <p className="text-[11px] text-gray-400">{b.detail}</p>
-                      </td>
-                      <td className="py-3.5 pr-4">
-                        <p className="text-xs text-gray-700">{b.date}</p>
-                        <p className="text-[11px] text-gray-400">{b.time}</p>
-                      </td>
-                      <td className="py-3.5 pr-4">
-                        <span
-                          className={`text-xs font-medium ${statusColor[b.status] ?? "text-gray-500"}`}
-                        >
-                          {b.status}
-                        </span>
-                      </td>
-                      <td className="py-3.5 text-right">
-                        <span className="text-xs text-gray-700">{b.total}</span>
+                  {bookings.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-16 text-center">
+                        <p className="text-sm font-medium text-gray-500">
+                          No booking history yet
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          Your bookings will appear here after you reserve a
+                          workspace.
+                        </p>
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    bookings.map((b, i) => (
+                      <tr
+                        key={b.id}
+                        className={`hover:bg-gray-50 ${i !== bookings.length - 1 ? "border-b border-gray-50" : ""}`}
+                      >
+                        <td className="py-3.5 pr-4 text-xs text-gray-700">
+                          {b.id}
+                        </td>
+                        <td className="py-3.5 pr-4">
+                          <p className="text-xs text-gray-700">{b.space}</p>
+                          <p className="text-[11px] text-gray-400">
+                            {b.detail}
+                          </p>
+                        </td>
+                        <td className="py-3.5 pr-4">
+                          <p className="text-xs text-gray-700">{b.date}</p>
+                          <p className="text-[11px] text-gray-400">{b.time}</p>
+                        </td>
+                        <td className="py-3.5 pr-4">
+                          <span
+                            className={`text-xs font-medium ${statusColor[b.status] ?? "text-gray-500"}`}
+                          >
+                            {b.status}
+                          </span>
+                        </td>
+                        <td className="py-3.5 text-right text-xs text-gray-700">
+                          {b.total}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -260,22 +368,31 @@ export default function AccountPage() {
         </div>
       </div>
 
-      {/* Simple Footer */}
+      {/* Footer */}
       <footer className="border-t border-gray-100 mt-8">
         <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p className="text-[11px] text-gray-400">
             &copy; 2026 Rupiah Building Jababeka. All rights reserved.
           </p>
           <div className="flex items-center gap-1 text-[11px] text-gray-400">
-            <Link href="#" className="hover:text-[#C9A36A] transition-colors">
+            <Link
+              href="/privacy-policy"
+              className="hover:text-[#C9A36A] transition-colors"
+            >
               Privacy Policy
             </Link>
             <span className="mx-1">|</span>
-            <Link href="#" className="hover:text-[#C9A36A] transition-colors">
+            <Link
+              href="/terms-of-use"
+              className="hover:text-[#C9A36A] transition-colors"
+            >
               Terms of Use
             </Link>
             <span className="mx-1">|</span>
-            <Link href="#" className="hover:text-[#C9A36A] transition-colors">
+            <Link
+              href="/cookie-policy"
+              className="hover:text-[#C9A36A] transition-colors"
+            >
               Cookie Policy
             </Link>
           </div>

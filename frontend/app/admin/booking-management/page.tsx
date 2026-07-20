@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import {
   Search,
   Download,
-  Filter,
   Calendar,
   CheckCircle,
   XCircle,
@@ -24,8 +23,7 @@ interface Booking {
   period: string;
   status: "Approved" | "Pending" | "Cancelled" | "Active";
   total: string;
-  checkIn?: string;
-  notes?: string;
+  rawStatus: string;
 }
 
 interface NextCheckIn {
@@ -37,7 +35,7 @@ interface NextCheckIn {
   notes?: string;
 }
 
-const STORAGE_KEY = "admin_bookings";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
 const STATUS_CONFIG = {
   Active: {
@@ -110,6 +108,13 @@ function StatusBadge({ status }: { status: Booking["status"] }) {
   );
 }
 
+function mapStatus(s: string): Booking["status"] {
+  if (s === "confirmed") return "Approved";
+  if (s === "completed") return "Active";
+  if (s === "cancelled") return "Cancelled";
+  return "Pending";
+}
+
 export default function BookingManagementPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [search, setSearch] = useState("");
@@ -121,21 +126,82 @@ export default function BookingManagementPage() {
   const [selected, setSelected] = useState<Booking | null>(null);
   const [actionNote, setActionNote] = useState("");
   const [checkIns, setCheckIns] = useState<NextCheckIn[]>([]);
+  const [loading, setLoading] = useState(true);
   const PER_PAGE = 4;
 
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    setBookings(stored ? JSON.parse(stored) : []);
-  }, []);
-
-  const save = (updated: Booking[]) => {
-    setBookings(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  const fetchBookings = () => {
+    const token = localStorage.getItem("token");
+    fetch(`${API_URL}/api/bookings/all`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) {
+          const mapped: Booking[] = result.data.map(
+            (b: {
+              booking_id: number;
+              username: string;
+              email: string;
+              pack_id: number;
+              floor_booked: number;
+              start_date: string;
+              end_date: string;
+              total_price: number;
+              status: string;
+            }) => ({
+              id: String(b.booking_id),
+              bookingId: `BK-${b.booking_id}`,
+              tenantName: b.username || b.email || "Unknown",
+              tenantInitials: (b.username || "U").slice(0, 2).toUpperCase(),
+              property: `Pack ${b.pack_id} - Floor ${b.floor_booked}`,
+              period: `${new Date(b.start_date).toLocaleDateString("id-ID")} – ${new Date(b.end_date).toLocaleDateString("id-ID")}`,
+              status: mapStatus(b.status),
+              total: `Rp ${Number(b.total_price).toLocaleString("id-ID")}`,
+              rawStatus: b.status,
+            }),
+          );
+          setBookings(mapped);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch bookings:", err))
+      .finally(() => setLoading(false));
   };
 
-  const updateStatus = (status: Booking["status"]) => {
+  useEffect(() => {
+    fetchBookings();
+  }, []);
+
+  const updateStatus = async (newStatus: Booking["status"]) => {
     if (!selected) return;
-    save(bookings.map((b) => (b.id === selected.id ? { ...b, status } : b)));
+
+    const token = localStorage.getItem("token");
+    const statusMap: Record<string, string> = {
+      Approved: "confirmed",
+      Pending: "pending",
+      Cancelled: "cancelled",
+      Active: "completed",
+    };
+
+    try {
+      await fetch(`${API_URL}/api/bookings/${selected.id}/status`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: statusMap[newStatus] }),
+      });
+      fetchBookings();
+    } catch (err) {
+      console.error("Failed to update status:", err);
+      // Update locally as fallback
+      setBookings((prev) =>
+        prev.map((b) =>
+          b.id === selected.id ? { ...b, status: newStatus } : b,
+        ),
+      );
+    }
+
     setModal(null);
     setSelected(null);
     setActionNote("");
@@ -156,35 +222,31 @@ export default function BookingManagementPage() {
   const stats = [
     {
       label: "Pending Requests",
-      value: null,
+      value: bookings.filter((b) => b.status === "Pending").length,
       icon: Clock,
       bg: "bg-orange-50",
       color: "text-orange-600",
-      sub: "",
     },
     {
       label: "Approved Bookings",
-      value: null,
+      value: bookings.filter((b) => b.status === "Approved").length,
       icon: CheckCircle,
       bg: "bg-green-50",
       color: "text-green-600",
-      sub: "",
     },
     {
       label: "Active Tenancies",
-      value: null,
+      value: bookings.filter((b) => b.status === "Active").length,
       icon: Calendar,
       bg: "bg-blue-50",
       color: "text-blue-600",
-      sub: "",
     },
     {
       label: "Cancelled",
-      value: null,
+      value: bookings.filter((b) => b.status === "Cancelled").length,
       icon: XCircle,
       bg: "bg-red-50",
       color: "text-red-500",
-      sub: "",
     },
   ];
 
@@ -219,9 +281,6 @@ export default function BookingManagementPage() {
               className="pl-8 pr-4 py-2 text-xs border-2 border-[#C9A36A]/30 rounded-lg focus:border-[#C9A36A] outline-none w-64 text-[#2B2B2B]"
             />
           </div>
-          <button className="flex items-center gap-1.5 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors">
-            Quick Actions
-          </button>
         </div>
       </div>
 
@@ -240,17 +299,12 @@ export default function BookingManagementPage() {
                 >
                   <Icon size={16} className={s.color} />
                 </div>
-                {s.sub && (
-                  <span className="text-[9px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full">
-                    {s.sub}
-                  </span>
-                )}
               </div>
               <p className="text-[10px] font-semibold text-[#2B2B2B]/50 uppercase tracking-wider">
                 {s.label}
               </p>
               <p className="text-3xl font-bold text-[#2B2B2B] mt-0.5">
-                {s.value ?? "—"}
+                {s.value}
               </p>
             </div>
           );
@@ -259,16 +313,13 @@ export default function BookingManagementPage() {
 
       {/* Main grid */}
       <div className="grid md:grid-cols-3 gap-4">
-        {/* Bookings Table - 2 cols */}
         <div className="md:col-span-2">
           <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden">
-            {/* Table header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#C9A36A]/10">
               <h2 className="text-sm font-bold text-[#2B2B2B]">
                 Recent Bookings
               </h2>
               <div className="flex items-center gap-2">
-                {/* Filter tabs */}
                 <div className="flex gap-1">
                   {["All", "Approved", "Pending", "Active", "Cancelled"].map(
                     (f) => (
@@ -291,7 +342,6 @@ export default function BookingManagementPage() {
               </div>
             </div>
 
-            {/* Table */}
             <table className="w-full">
               <thead className="bg-[#F5F0E8]/50">
                 <tr>
@@ -313,7 +363,16 @@ export default function BookingManagementPage() {
                 </tr>
               </thead>
               <tbody>
-                {paginated.length === 0 ? (
+                {loading ? (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="py-12 text-center text-sm text-[#2B2B2B]/30"
+                    >
+                      Loading bookings...
+                    </td>
+                  </tr>
+                ) : paginated.length === 0 ? (
                   <tr>
                     <td
                       colSpan={6}
@@ -360,7 +419,6 @@ export default function BookingManagementPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
-                          {/* View */}
                           <button
                             onClick={() => {
                               setSelected(b);
@@ -371,7 +429,6 @@ export default function BookingManagementPage() {
                           >
                             <Eye size={13} className="text-[#C9A36A]" />
                           </button>
-                          {/* Approve */}
                           {b.status !== "Approved" && b.status !== "Active" && (
                             <button
                               onClick={() => {
@@ -387,7 +444,6 @@ export default function BookingManagementPage() {
                               />
                             </button>
                           )}
-                          {/* Pending */}
                           {b.status !== "Pending" && (
                             <button
                               onClick={() => {
@@ -400,7 +456,6 @@ export default function BookingManagementPage() {
                               <Clock size={13} className="text-orange-500" />
                             </button>
                           )}
-                          {/* Cancel */}
                           {b.status !== "Cancelled" && (
                             <button
                               onClick={() => {
@@ -421,11 +476,13 @@ export default function BookingManagementPage() {
               </tbody>
             </table>
 
-            {/* Pagination */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-[#C9A36A]/10 bg-[#F5F0E8]/20">
               <p className="text-[11px] text-[#2B2B2B]/50">
-                Showing {Math.min((page - 1) * PER_PAGE + 1, filtered.length)}–
-                {Math.min(page * PER_PAGE, filtered.length)} of{" "}
+                Showing{" "}
+                {filtered.length === 0
+                  ? 0
+                  : Math.min((page - 1) * PER_PAGE + 1, filtered.length)}
+                –{Math.min(page * PER_PAGE, filtered.length)} of{" "}
                 {filtered.length} bookings
               </p>
               <div className="flex items-center gap-1">
@@ -457,9 +514,8 @@ export default function BookingManagementPage() {
           </div>
         </div>
 
-        {/* Right col */}
+        {/* Right col - Next Check-ins */}
         <div className="flex flex-col gap-4">
-          {/* Next Check-ins */}
           <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-bold text-[#2B2B2B]">
@@ -509,7 +565,7 @@ export default function BookingManagementPage() {
         </div>
       </div>
 
-      {/* ── View Modal ── */}
+      {/* View Modal */}
       {modal === "view" && selected && (
         <Modal title="Booking Detail" onClose={() => setModal(null)}>
           <div className="space-y-3 mb-5">
@@ -534,13 +590,10 @@ export default function BookingManagementPage() {
               </div>
             ))}
           </div>
-          {/* Action buttons in view modal */}
           <div className="flex gap-2">
             {selected.status !== "Approved" && selected.status !== "Active" && (
               <button
-                onClick={() => {
-                  updateStatus("Approved");
-                }}
+                onClick={() => updateStatus("Approved")}
                 className="flex-1 flex items-center justify-center gap-1.5 bg-green-500 hover:bg-green-600 text-white text-xs font-bold py-2 rounded-lg transition-colors"
               >
                 <CheckCircle size={13} /> Approve
@@ -548,9 +601,7 @@ export default function BookingManagementPage() {
             )}
             {selected.status !== "Pending" && (
               <button
-                onClick={() => {
-                  updateStatus("Pending");
-                }}
+                onClick={() => updateStatus("Pending")}
                 className="flex-1 flex items-center justify-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold py-2 rounded-lg transition-colors"
               >
                 <Clock size={13} /> Set Pending
@@ -558,9 +609,7 @@ export default function BookingManagementPage() {
             )}
             {selected.status !== "Cancelled" && (
               <button
-                onClick={() => {
-                  setModal("cancel");
-                }}
+                onClick={() => setModal("cancel")}
                 className="flex-1 flex items-center justify-center gap-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2 rounded-lg transition-colors"
               >
                 <XCircle size={13} /> Cancel
@@ -570,7 +619,7 @@ export default function BookingManagementPage() {
         </Modal>
       )}
 
-      {/* ── Approve Modal ── */}
+      {/* Approve Modal */}
       {modal === "approve" && selected && (
         <Modal title="Approve Booking" onClose={() => setModal(null)}>
           <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
@@ -613,7 +662,7 @@ export default function BookingManagementPage() {
         </Modal>
       )}
 
-      {/* ── Pending Modal ── */}
+      {/* Pending Modal */}
       {modal === "pending" && selected && (
         <Modal title="Set to Pending" onClose={() => setModal(null)}>
           <div className="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
@@ -656,7 +705,7 @@ export default function BookingManagementPage() {
         </Modal>
       )}
 
-      {/* ── Cancel Modal ── */}
+      {/* Cancel Modal */}
       {modal === "cancel" && selected && (
         <Modal title="Cancel Booking" onClose={() => setModal(null)}>
           <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl p-4 mb-4">

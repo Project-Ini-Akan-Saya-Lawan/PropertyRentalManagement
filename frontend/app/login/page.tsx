@@ -6,46 +6,60 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Mail, Lock, ArrowRight } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 const schema = z.object({
   email: z.string().email("Invalid email"),
   password: z.string().min(6, "Min 6 characters"),
 });
+
 type Form = z.infer<typeof schema>;
 
-const ADMIN_EMAIL = "admin@gmail.com";
-const ADMIN_PASSWORD = "admin123";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirect = searchParams.get("redirect");
 
   const {
     register,
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<Form>({
-    resolver: zodResolver(schema),
-  });
+  } = useForm<Form>({ resolver: zodResolver(schema) });
 
   const onSubmit = async (data: Form) => {
-    await new Promise((r) => setTimeout(r, 600));
+    try {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: data.email, password: data.password }),
+      });
 
-    // Admin check
-    if (data.email === ADMIN_EMAIL && data.password === ADMIN_PASSWORD) {
-      localStorage.setItem("isAdmin", "true");
-      localStorage.setItem("adminEmail", data.email);
-      router.push("/admin/dashboard");
-      return;
+      const result = await response.json();
+
+      if (!response.ok) {
+        setError("password", { message: result.message || "Login gagal" });
+        return;
+      }
+
+      localStorage.setItem("token", result.token);
+      localStorage.setItem("user", JSON.stringify(result.user));
+      localStorage.setItem("isLoggedIn", "true");
+
+      // Cek role_id — 1 = admin
+      if (result.user.role_id === 1) {
+        localStorage.setItem("isAdmin", "true");
+        router.push("/admin/dashboard");
+      } else {
+        router.push(redirect || "/account");
+      }
+    } catch (error) {
+      console.error(error);
+      setError("password", { message: "Tidak dapat terhubung ke server." });
     }
-
-    // User login - TODO: replace with real API
-    // const res = await fetch("/api/auth/login", { method: "POST", body: JSON.stringify(data) });
-    // if (!res.ok) { setError("password", { message: "Invalid email or password" }); return; }
-    localStorage.setItem("isLoggedIn", "true");
-    localStorage.setItem("userEmail", data.email);
-    router.push("/account");
   };
 
   return (
@@ -97,7 +111,10 @@ export default function LoginPage() {
               <label className="text-sm font-medium text-[#2B2B2B]">
                 Password
               </label>
-              <Link href="#" className="text-xs text-[#C9A36A] hover:underline">
+              <Link
+                href="/forgot-password"
+                className="text-xs text-[#C9A36A] hover:underline"
+              >
                 Forgot password?
               </Link>
             </div>
@@ -120,7 +137,7 @@ export default function LoginPage() {
             )}
           </div>
 
-          {/* Sign In Button */}
+          {/* Login Button */}
           <button
             type="submit"
             disabled={isSubmitting}
@@ -142,9 +159,12 @@ export default function LoginPage() {
             <div className="flex-1 h-px bg-gray-200" />
           </div>
 
-          {/* Continue with Google */}
+          {/* Google Login */}
           <button
             type="button"
+            onClick={() => {
+              window.location.href = `${API_URL}/api/auth/google`;
+            }}
             className="w-full flex items-center justify-center gap-3 border border-gray-200 bg-white hover:bg-gray-50 py-3 rounded-xl transition-colors text-sm text-gray-600 font-medium"
           >
             <svg width="18" height="18" viewBox="0 0 24 24">
@@ -180,5 +200,13 @@ export default function LoginPage() {
         </p>
       </motion.div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

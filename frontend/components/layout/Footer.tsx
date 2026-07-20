@@ -21,7 +21,11 @@ const navLinks = [
   { label: "Contact Us", href: "/contact" },
 ];
 
-const legalLinks = ["Privacy Policy", "Terms of Use", "Cookie Policy"];
+const legalLinks = [
+  { label: "Privacy Policy", href: "/privacy-policy" },
+  { label: "Terms of Use", href: "/terms-of-use" },
+  { label: "Cookie Policy", href: "/cookie-policy" },
+];
 
 export default function Footer() {
   return (
@@ -140,13 +144,13 @@ export default function Footer() {
             &copy; 2026 Rupiah Building Jababeka. All rights reserved.
           </p>
           <div className="flex gap-5">
-            {legalLinks.map((t) => (
+            {legalLinks.map(({ label, href }) => (
               <Link
-                key={t}
-                href="#"
+                key={href}
+                href={href}
                 className="text-[11px] text-gray-400 hover:text-[#C9A36A] transition-colors"
               >
-                {t}
+                {label}
               </Link>
             ))}
           </div>
