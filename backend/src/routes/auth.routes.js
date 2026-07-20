@@ -27,7 +27,8 @@ router.get(
 );
 
 router.get("/google/failure", (req, res) => {
-  res.status(401).json({ message: "Google login failed." });
+  const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+  res.redirect(`${clientUrl}/login?error=google_failed`);
 });
 
 router.get("/me", authenticateJWT, (req, res) => {

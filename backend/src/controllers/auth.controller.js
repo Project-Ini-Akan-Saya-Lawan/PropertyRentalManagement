@@ -130,22 +130,15 @@ const login = async (req, res) => {
 };
 
 const googleCallback = (req, res) => {
+  const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+
   if (!req.user) {
-    return res.status(401).json({ message: "Google login failed." });
+    return res.redirect(`${clientUrl}/login?error=google_failed`);
   }
 
   const token = generateToken(req.user);
 
-  res.status(200).json({
-    message: "Google login successful!",
-    token,
-    user: {
-      user_id: req.user.user_id,
-      username: req.user.username,
-      email: req.user.email,
-      auth_provider: req.user.auth_provider,
-    },
-  });
+  res.redirect(`${clientUrl}/auth/callback?token=${encodeURIComponent(token)}`);
 };
 
 const changePassword = async (req, res) => {
