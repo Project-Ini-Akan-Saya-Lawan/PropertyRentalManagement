@@ -7,7 +7,7 @@ interface Props {
   floor?: string;
   type?: string;
   date?: string;
-  commitmentTerms?: string;
+  months?: number;
 }
 
 export default function BookingSummary({
@@ -15,22 +15,11 @@ export default function BookingSummary({
   floor,
   type,
   date,
-  commitmentTerms,
+  months = 1,
 }: Props) {
-  const years = commitmentTerms ? parseInt(commitmentTerms) || 1 : 1;
-  const yearly = workspace.monthlyPrice * years;
-  const tax = yearly * workspace.taxRate;
-  const total = yearly + tax;
-
-  // Auto calculate end date
-  const endDate = (() => {
-    if (!date || !commitmentTerms) return null;
-    const start = new Date(date);
-    const y = parseInt(commitmentTerms) || 1;
-    start.setFullYear(start.getFullYear() + y);
-    start.setDate(start.getDate() - 1);
-    return start.toISOString().split("T")[0];
-  })();
+  const monthly = workspace.monthlyPrice;
+  const tax = monthly * workspace.taxRate;
+  const monthlyTotal = monthly + tax;
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden sticky top-24">
@@ -49,80 +38,33 @@ export default function BookingSummary({
       </div>
 
       <div className="p-4">
+        {/* Details */}
         <h4 className="text-xs font-bold text-[#2B2B2B] mb-3 uppercase tracking-wider">
           Plan Summary
         </h4>
-
         <div className="space-y-2 text-xs text-gray-500 mb-4">
-          {/* Tower */}
           <div className="flex justify-between">
             <span>Tower</span>
             <span className="font-medium text-[#2B2B2B]">
-              {workspace.tower === "Wiwi Tower"
-                ? "Wowi Tower"
-                : workspace.tower}
+              {workspace.tower}
             </span>
           </div>
-
-          {/* Type Office */}
-          <div className="flex justify-between">
-            <span>Type Office</span>
-            <span className="font-medium text-[#2B2B2B]">
-              {type || workspace.workspaceType}
-            </span>
-          </div>
-
-          {/* Commitment Terms */}
-          {commitmentTerms ? (
+          {floor && (
             <div className="flex justify-between">
-              <span>Commitment Terms</span>
-              <span className="font-medium text-[#2B2B2B]">
-                {commitmentTerms}
-              </span>
-            </div>
-          ) : (
-            <div className="flex justify-between opacity-30">
-              <span>Commitment Terms</span>
-              <span>—</span>
-            </div>
-          )}
-
-          {/* Floor */}
-          {floor ? (
-            <div className="flex justify-between">
-              <span>Floor</span>
+              <span>Floor Selected</span>
               <span className="font-medium text-[#2B2B2B]">{floor}</span>
             </div>
-          ) : (
-            <div className="flex justify-between opacity-30">
-              <span>Floor</span>
-              <span>—</span>
+          )}
+          {type && (
+            <div className="flex justify-between">
+              <span>Type Office</span>
+              <span className="font-medium text-[#2B2B2B]">{type}</span>
             </div>
           )}
-
-          {/* Start Date */}
-          {date ? (
+          {date && (
             <div className="flex justify-between">
-              <span>Start Date</span>
+              <span>Date</span>
               <span className="font-medium text-[#2B2B2B]">{date}</span>
-            </div>
-          ) : (
-            <div className="flex justify-between opacity-30">
-              <span>Start Date</span>
-              <span>—</span>
-            </div>
-          )}
-
-          {/* End Date - auto calculated */}
-          {endDate ? (
-            <div className="flex justify-between">
-              <span>End Date</span>
-              <span className="font-medium text-[#C9A36A]">{endDate}</span>
-            </div>
-          ) : (
-            <div className="flex justify-between opacity-30">
-              <span>End Date</span>
-              <span>—</span>
             </div>
           )}
         </div>
@@ -133,18 +75,16 @@ export default function BookingSummary({
             Price Breakdown
           </p>
           <div className="flex justify-between text-gray-500">
-            <span>
-              Annual Fee {commitmentTerms ? `(${commitmentTerms})` : ""}
-            </span>
-            <span>{formatIDR(yearly)}</span>
+            <span>Monthly Fee</span>
+            <span>{formatIDR(monthly)}</span>
           </div>
           <div className="flex justify-between text-gray-500">
             <span>Tax + VAT ({(workspace.taxRate * 100).toFixed(0)}%)</span>
             <span>{formatIDR(tax)}</span>
           </div>
           <div className="flex justify-between font-bold text-[#C9A36A] pt-2 border-t border-gray-100">
-            <span>Total {commitmentTerms || "Annual"}</span>
-            <span>{formatIDR(total)}</span>
+            <span>Monthly Total</span>
+            <span>{formatIDR(monthlyTotal)}</span>
           </div>
         </div>
 

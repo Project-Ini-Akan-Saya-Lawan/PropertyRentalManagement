@@ -1,4 +1,5 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -26,8 +27,6 @@ const MONTHLY_DATA = [25, 40, 33, 52, 60, 78];
 const MONTHLY_LABELS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN"];
 const QUARTERLY_DATA = [45, 62, 55, 80];
 const QUARTERLY_LABELS = ["Q1", "Q2", "Q3", "Q4"];
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
 function StatCard({
   label,
@@ -68,71 +67,11 @@ export default function AdminDashboardPage() {
   const [revenueTab, setRevenueTab] = useState<"monthly" | "quarterly">(
     "monthly",
   );
-  const [recentBookings, setRecentBookings] = useState<
-    { title: string; sub: string; time: string }[]
-  >([]);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    const headers: Record<string, string> = token
-      ? { Authorization: `Bearer ${token}` }
-      : {};
-
-    // Fetch total properties
-    fetch(`${API_URL}/api/properties`)
-      .then((r) => r.json())
-      .then((result) => {
-        if (result.data) {
-          setStats((prev) => ({
-            ...prev,
-            totalProperties: result.data.length,
-          }));
-        }
-      })
-      .catch((err) => console.error("Failed to fetch properties:", err));
-
-    // Fetch total tenants
-    fetch(`${API_URL}/api/users`, { headers })
-      .then((r) => r.json())
-      .then((result) => {
-        if (result.data) {
-          const tenants = result.data.filter(
-            (u: { role_id: number }) => u.role_id === 2,
-          );
-          setStats((prev) => ({ ...prev, totalTenants: tenants.length }));
-        }
-      })
-      .catch((err) => console.error("Failed to fetch users:", err));
-
-    // Fetch all bookings → pending approvals + recent activity
-    fetch(`${API_URL}/api/bookings/all`, { headers })
-      .then((r) => r.json())
-      .then((result) => {
-        if (result.data) {
-          const pending = result.data.filter(
-            (b: { status: string }) => b.status === "pending",
-          ).length;
-          setStats((prev) => ({ ...prev, pendingApprovals: pending }));
-
-          // Recent bookings for activity feed
-          const recent = result.data
-            .slice(0, 4)
-            .map(
-              (b: {
-                username: string;
-                booking_id: number;
-                status: string;
-                booking_date: string;
-              }) => ({
-                title: "New Booking Received",
-                sub: `${b.username} — BK-${b.booking_id}`,
-                time: new Date(b.booking_date).toLocaleDateString("id-ID"),
-              }),
-            );
-          setRecentBookings(recent);
-        }
-      })
-      .catch((err) => console.error("Failed to fetch bookings:", err));
+    // TODO: fetch from API
+    // const s = await fetch("/api/admin/dashboard/stats").then(r => r.json());
+    // setStats(s);
   }, []);
 
   const chartData = revenueTab === "monthly" ? MONTHLY_DATA : QUARTERLY_DATA;
@@ -156,7 +95,7 @@ export default function AdminDashboardPage() {
         </p>
       </div>
 
-      {/* Stats */}
+      {/* Stats - no sub badges */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
         <StatCard
           label="Total Properties"
@@ -206,18 +145,28 @@ export default function AdminDashboardPage() {
             <div className="flex gap-1 border-2 border-[#C9A36A]/30 rounded-lg p-0.5">
               <button
                 onClick={() => setRevenueTab("monthly")}
-                className={`text-[10px] px-3 py-1 rounded-md font-bold transition-colors ${revenueTab === "monthly" ? "bg-[#C9A36A] text-white" : "text-[#2B2B2B]/60 hover:text-[#2B2B2B]"}`}
+                className={`text-[10px] px-3 py-1 rounded-md font-bold transition-colors ${
+                  revenueTab === "monthly"
+                    ? "bg-[#C9A36A] text-white"
+                    : "text-[#2B2B2B]/60 hover:text-[#2B2B2B]"
+                }`}
               >
                 Monthly
               </button>
               <button
                 onClick={() => setRevenueTab("quarterly")}
-                className={`text-[10px] px-3 py-1 rounded-md font-bold transition-colors ${revenueTab === "quarterly" ? "bg-[#C9A36A] text-white" : "text-[#2B2B2B]/60 hover:text-[#2B2B2B]"}`}
+                className={`text-[10px] px-3 py-1 rounded-md font-bold transition-colors ${
+                  revenueTab === "quarterly"
+                    ? "bg-[#C9A36A] text-white"
+                    : "text-[#2B2B2B]/60 hover:text-[#2B2B2B]"
+                }`}
               >
                 Quarterly
               </button>
             </div>
           </div>
+
+          {/* Bar chart */}
           <div className="h-44 flex items-end gap-2 px-2">
             {chartData.map((val, i) => (
               <div
@@ -239,6 +188,8 @@ export default function AdminDashboardPage() {
               </div>
             ))}
           </div>
+
+          {/* Legend */}
           <div className="mt-3 pt-3 border-t border-[#C9A36A]/20 flex items-center gap-3">
             {revenueTab === "monthly" ? (
               <>
@@ -274,44 +225,69 @@ export default function AdminDashboardPage() {
               </>
             )}
           </div>
+          <p className="text-center text-[10px] font-medium text-[#2B2B2B]/20 mt-1">
+            Connect API to show real data
+          </p>
         </div>
 
         {/* Recent Activity */}
         <div className="bg-white border-2 border-[#C9A36A]/30 rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm font-bold text-[#2B2B2B]">Recent Activity</p>
-            <button
-              onClick={() => router.push("/admin/booking-management")}
-              className="text-[10px] font-bold text-[#C9A36A] hover:underline"
-            >
+            <button className="text-[10px] font-bold text-[#C9A36A] hover:underline">
               View All
             </button>
           </div>
           <div className="space-y-4">
-            {recentBookings.length === 0 ? (
-              <p className="text-xs text-[#2B2B2B]/30 text-center py-4">
-                No recent activity
-              </p>
-            ) : (
-              recentBookings.map((a, i) => (
-                <div key={i} className="flex items-start gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
-                    <FileText size={12} className="text-blue-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-[#2B2B2B] leading-tight">
-                      {a.title}
-                    </p>
-                    <p className="text-[10px] font-medium text-[#2B2B2B]/50">
-                      {a.sub}
-                    </p>
-                  </div>
-                  <span className="text-[9px] font-semibold text-[#2B2B2B]/30 whitespace-nowrap">
-                    {a.time}
-                  </span>
+            {[
+              {
+                title: "New Booking Received",
+                sub: "—",
+                time: "—",
+                bg: "bg-blue-100",
+                icon: <FileText size={12} className="text-blue-600" />,
+              },
+              {
+                title: "Property Approved",
+                sub: "—",
+                time: "—",
+                bg: "bg-green-100",
+                icon: <Home size={12} className="text-green-600" />,
+              },
+              {
+                title: "Payout Disbursed",
+                sub: "—",
+                time: "—",
+                bg: "bg-red-100",
+                icon: <TrendingUp size={12} className="text-red-600" />,
+              },
+              {
+                title: "Support Ticket Resolved",
+                sub: "—",
+                time: "—",
+                bg: "bg-[#C9A36A]/15",
+                icon: <Calendar size={12} className="text-[#C9A36A]" />,
+              },
+            ].map((a, i) => (
+              <div key={i} className="flex items-start gap-2.5">
+                <div
+                  className={`w-7 h-7 rounded-lg ${a.bg} flex items-center justify-center flex-shrink-0`}
+                >
+                  {a.icon}
                 </div>
-              ))
-            )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-[#2B2B2B] leading-tight">
+                    {a.title}
+                  </p>
+                  <p className="text-[10px] font-medium text-[#2B2B2B]/50">
+                    {a.sub}
+                  </p>
+                </div>
+                <span className="text-[9px] font-semibold text-[#2B2B2B]/30 whitespace-nowrap">
+                  {a.time}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -324,13 +300,11 @@ export default function AdminDashboardPage() {
             Booking Trend
           </p>
           <div className="flex items-baseline gap-2 mb-1">
-            <p className="text-2xl font-bold text-[#2B2B2B]">
-              {stats.pendingApprovals ?? "—"}
-            </p>
-            <span className="text-xs font-bold text-orange-500">Pending</span>
+            <p className="text-2xl font-bold text-[#2B2B2B]">—</p>
+            <span className="text-xs font-bold text-green-600">+12%</span>
           </div>
           <p className="text-[10px] font-medium text-[#2B2B2B]/60 mb-3">
-            Total pending bookings
+            Total new bookings this month
           </p>
           <div className="h-14 flex items-end gap-1">
             {[20, 35, 28, 45, 38, 50, 42, 60].map((h, i) => (
@@ -355,9 +329,7 @@ export default function AdminDashboardPage() {
             Across all luxury units
           </p>
           <div className="w-20 h-20 rounded-full border-8 border-[#C9A36A] flex items-center justify-center">
-            <span className="text-lg font-bold text-[#2B2B2B]">
-              {stats.occupancyRate ?? "—"}
-            </span>
+            <span className="text-lg font-bold text-[#2B2B2B]">—</span>
           </div>
           <p className="text-[10px] font-medium text-[#2B2B2B]/30 mt-3">
             API data pending
@@ -385,6 +357,7 @@ export default function AdminDashboardPage() {
               </p>
             </div>
           </button>
+
           <button
             onClick={() => router.push("/admin/user-management")}
             className="bg-white border-2 border-[#C9A36A]/40 rounded-xl p-4 flex items-center gap-3 hover:bg-[#C9A36A] group transition-all duration-200 hover:border-[#C9A36A] hover:shadow-md text-left"
@@ -397,10 +370,10 @@ export default function AdminDashboardPage() {
             </div>
             <div>
               <p className="text-xs font-bold text-[#2B2B2B] group-hover:text-white transition-colors">
-                Manage Users
+                New Owner
               </p>
               <p className="text-[10px] font-medium text-[#2B2B2B]/50 group-hover:text-white/70 transition-colors">
-                View and manage tenants
+                Onboard a property owner
               </p>
             </div>
           </button>

@@ -1,10 +1,9 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useInView, motion, AnimatePresence } from "framer-motion";
+import { useInView, motion } from "framer-motion";
 import {
   Users,
   Building2,
@@ -12,9 +11,6 @@ import {
   CheckCircle2,
   ArrowLeft,
   ChevronRight,
-  X,
-  LogIn,
-  UserPlus,
 } from "lucide-react";
 import { Workspace } from "@/types";
 import { formatIDR } from "@/lib/utils";
@@ -29,23 +25,6 @@ export default function WorkspaceDetailClient({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true });
-  const router = useRouter();
-
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-
-  useEffect(() => {
-    const logged = localStorage.getItem("isLoggedIn");
-    setIsLoggedIn(!!logged);
-  }, []);
-
-  const handleRentNow = () => {
-    if (!isLoggedIn) {
-      setShowModal(true);
-      return;
-    }
-    router.push(`/workspace/${workspace.slug}/rent-details`);
-  };
 
   const related = workspace.relatedSlugs
     .map(getWorkspaceBySlug)
@@ -53,69 +32,6 @@ export default function WorkspaceDetailClient({
 
   return (
     <>
-      {/* ── Auth Modal ── */}
-      <AnimatePresence>
-        {showModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-            onClick={() => setShowModal(false)}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 16 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 16 }}
-              transition={{ duration: 0.25 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Close */}
-              <button
-                onClick={() => setShowModal(false)}
-                className="absolute top-4 right-4 p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X size={15} className="text-gray-400" />
-              </button>
-
-              {/* Icon */}
-              <div className="w-14 h-14 bg-[#C9A36A]/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <LogIn size={24} className="text-[#C9A36A]" />
-              </div>
-
-              {/* Text */}
-              <h3
-                className="text-lg font-bold text-[#2B2B2B] text-center mb-2"
-                style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
-              >
-                Sign In Required
-              </h3>
-              <p className="text-xs text-[#2B2B2B]/60 text-center mb-6 leading-relaxed">
-                You need to have an account to rent a workspace. Please sign in
-                or create a new account to continue.
-              </p>
-
-              {/* Buttons */}
-              <div className="space-y-2.5">
-                <Link
-                  href={`/login?redirect=/workspace/${workspace.slug}/rent-details`}
-                  className="flex items-center justify-center gap-2 w-full bg-[#C9A36A] hover:bg-[#A8834A] text-white font-bold text-sm py-3 rounded-xl transition-colors"
-                >
-                  <LogIn size={15} /> Sign In
-                </Link>
-                <Link
-                  href="/signup"
-                  className="flex items-center justify-center gap-2 w-full border-2 border-[#C9A36A]/40 text-[#2B2B2B] font-semibold text-sm py-3 rounded-xl hover:bg-[#C9A36A]/5 transition-colors"
-                >
-                  <UserPlus size={15} /> Create Account
-                </Link>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Hero */}
       <div className="relative h-[380px] overflow-hidden">
         <Image
@@ -240,7 +156,9 @@ export default function WorkspaceDetailClient({
               <p className="text-xs text-gray-400 mb-1">Starting from</p>
               <p className="font-bold text-2xl text-[#2B2B2B]">
                 {formatIDR(workspace.monthlyPrice)}
-                <span className="text-sm font-normal text-gray-400">/year</span>
+                <span className="text-sm font-normal text-gray-400">
+                  /month
+                </span>
               </p>
               <p className="text-xs text-gray-400 mt-1 mb-5">
                 + {(workspace.taxRate * 100).toFixed(0)}% tax
@@ -275,9 +193,8 @@ export default function WorkspaceDetailClient({
                 </div>
               </div>
 
-              {/* Rent Now — cek login dulu */}
-              <button
-                onClick={handleRentNow}
+              <Link
+                href={`/workspace/${workspace.slug}/rent-details`}
                 className="flex items-center justify-center gap-2 w-full bg-[#C9A36A] hover:bg-[#A8834A] text-white font-semibold text-sm py-3 rounded-md transition-colors group"
               >
                 Rent Now
@@ -285,8 +202,7 @@ export default function WorkspaceDetailClient({
                   size={15}
                   className="group-hover:translate-x-0.5 transition-transform"
                 />
-              </button>
-
+              </Link>
               <Link
                 href="/contact"
                 className="flex items-center justify-center w-full border border-gray-200 text-gray-500 text-xs font-medium py-2.5 rounded-md mt-2 hover:bg-gray-50 transition-colors"
@@ -311,6 +227,7 @@ export default function WorkspaceDetailClient({
           </div>
         )}
       </div>
+
       <Footer />
     </>
   );

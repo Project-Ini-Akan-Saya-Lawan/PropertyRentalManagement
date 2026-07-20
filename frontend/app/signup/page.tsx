@@ -6,7 +6,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { User, Mail, Phone, Building2, Lock, ArrowRight } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 const schema = z
   .object({
@@ -24,48 +23,19 @@ const schema = z
 
 type Form = z.infer<typeof schema>;
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-
 export default function SignupPage() {
-  const router = useRouter();
-
   const {
     register,
     handleSubmit,
-    setError,
     formState: { errors, isSubmitting },
-  } = useForm<Form>({ resolver: zodResolver(schema) });
+  } = useForm<Form>({
+    resolver: zodResolver(schema),
+  });
 
   const onSubmit = async (data: Form) => {
-    try {
-      const response = await fetch(`${API_URL}/api/auth/signup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: data.fullName,
-          email: data.email,
-          phone_number: data.phone,
-          password: data.password,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        setError("email", { message: result.message || "Registration failed" });
-        return;
-      }
-
-      // Langsung redirect ke login tanpa alert
-      router.push("/login");
-    } catch (error) {
-      console.error(error);
-      setError("email", { message: "Cannot connect to server." });
-    }
+    await new Promise((r) => setTimeout(r, 800));
+    console.log("Signup:", data);
   };
-
-  const inputCls =
-    "w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-white placeholder:text-gray-300 text-gray-700 focus:border-[#C9A36A] focus:ring-2 focus:ring-[#C9A36A]/20 outline-none transition-all";
 
   return (
     <div className="min-h-screen bg-[#F5F5F5] flex items-center justify-center px-4 py-12">
@@ -94,7 +64,7 @@ export default function SignupPage() {
               <input
                 {...register("fullName")}
                 placeholder="John Doe"
-                className={inputCls}
+                className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-white placeholder:text-gray-300 text-gray-700 focus:border-[#C9A36A] focus:ring-2 focus:ring-[#C9A36A]/20 outline-none transition-all"
               />
             </div>
             {errors.fullName && (
@@ -118,7 +88,7 @@ export default function SignupPage() {
                 {...register("email")}
                 type="email"
                 placeholder="you@company.com"
-                className={inputCls}
+                className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-white placeholder:text-gray-300 text-gray-700 focus:border-[#C9A36A] focus:ring-2 focus:ring-[#C9A36A]/20 outline-none transition-all"
               />
             </div>
             {errors.email && (
@@ -142,7 +112,7 @@ export default function SignupPage() {
                 {...register("phone")}
                 type="tel"
                 placeholder="+62 812 3456 7890"
-                className={inputCls}
+                className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-white placeholder:text-gray-300 text-gray-700 focus:border-[#C9A36A] focus:ring-2 focus:ring-[#C9A36A]/20 outline-none transition-all"
               />
             </div>
             {errors.phone && (
@@ -152,7 +122,7 @@ export default function SignupPage() {
             )}
           </div>
 
-          {/* Company */}
+          {/* Company (Optional) */}
           <div>
             <label className="block text-sm font-medium text-[#2B2B2B] mb-1.5">
               Company Name{" "}
@@ -166,7 +136,7 @@ export default function SignupPage() {
               <input
                 {...register("company")}
                 placeholder="Your company"
-                className={inputCls}
+                className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-white placeholder:text-gray-300 text-gray-700 focus:border-[#C9A36A] focus:ring-2 focus:ring-[#C9A36A]/20 outline-none transition-all"
               />
             </div>
           </div>
@@ -185,7 +155,7 @@ export default function SignupPage() {
                 {...register("password")}
                 type="password"
                 placeholder="At least 8 characters"
-                className={inputCls}
+                className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-white placeholder:text-gray-300 text-gray-700 focus:border-[#C9A36A] focus:ring-2 focus:ring-[#C9A36A]/20 outline-none transition-all"
               />
             </div>
             {errors.password && (
@@ -209,7 +179,7 @@ export default function SignupPage() {
                 {...register("confirmPassword")}
                 type="password"
                 placeholder="Repeat your password"
-                className={inputCls}
+                className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-white placeholder:text-gray-300 text-gray-700 focus:border-[#C9A36A] focus:ring-2 focus:ring-[#C9A36A]/20 outline-none transition-all"
               />
             </div>
             {errors.confirmPassword && (
@@ -222,50 +192,41 @@ export default function SignupPage() {
           {/* Terms */}
           <p className="text-xs text-gray-400 leading-relaxed">
             By creating an account, you agree to our{" "}
-            <Link
-              href="/terms-of-use"
-              className="text-[#C9A36A] hover:underline"
-            >
+            <Link href="#" className="text-[#C9A36A] hover:underline">
               Terms of Service
             </Link>{" "}
             and{" "}
-            <Link
-              href="/privacy-policy"
-              className="text-[#C9A36A] hover:underline"
-            >
+            <Link href="#" className="text-[#C9A36A] hover:underline">
               Privacy Policy
             </Link>
             .
           </p>
 
-          {/* Submit */}
-          <motion.button
+          {/* Create Account Button */}
+          <button
             type="submit"
             disabled={isSubmitting}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="w-full flex items-center justify-center gap-2 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-sm font-semibold py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+            className="w-full flex items-center justify-center gap-2 bg-[#C9A36A] hover:bg-[#A8834A] disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors text-sm group"
           >
-            {isSubmitting ? (
-              "Creating account..."
-            ) : (
-              <>
-                <span>Create Account</span>
-                <ArrowRight size={16} />
-              </>
+            {isSubmitting ? "Creating account..." : "Create Account"}
+            {!isSubmitting && (
+              <ArrowRight
+                size={15}
+                className="group-hover:translate-x-0.5 transition-transform"
+              />
             )}
-          </motion.button>
-
-          <p className="text-center text-sm text-gray-400 pt-2">
-            Already have an account?{" "}
-            <Link
-              href="/login"
-              className="text-[#C9A36A] font-medium hover:underline"
-            >
-              Sign in
-            </Link>
-          </p>
+          </button>
         </form>
+
+        <p className="text-center text-xs text-gray-400 mt-6">
+          Already have an account?{" "}
+          <Link
+            href="/login"
+            className="text-[#C9A36A] font-semibold hover:underline"
+          >
+            Sign In
+          </Link>
+        </p>
       </motion.div>
     </div>
   );

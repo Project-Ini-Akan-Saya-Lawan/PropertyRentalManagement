@@ -47,9 +47,9 @@ function Modal({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md my-4">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl z-10">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h3
             className="font-bold text-[#2B2B2B]"
             style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
@@ -63,7 +63,7 @@ function Modal({
             <X size={16} className="text-gray-500" />
           </button>
         </div>
-        <div className="p-6 overflow-y-auto max-h-[70vh]">{children}</div>
+        <div className="p-6">{children}</div>
       </div>
     </div>
   );
@@ -81,12 +81,6 @@ export default function PaymentManagementPage() {
     invoiceId: "",
     reason: "",
     amount: "",
-    tenantName: "",
-    tenantEmail: "",
-    tenantPhone: "",
-    bookingId: "",
-    property: "",
-    refundMethod: "",
   });
   const [exportFormat, setExportFormat] = useState("PDF");
 
@@ -112,17 +106,7 @@ export default function PaymentManagementPage() {
     alert(
       `Refund submitted for invoice ${refundForm.invoiceId} (connect to API)`,
     );
-    setRefundForm({
-      invoiceId: "",
-      reason: "",
-      amount: "",
-      tenantName: "",
-      tenantEmail: "",
-      tenantPhone: "",
-      bookingId: "",
-      property: "",
-      refundMethod: "",
-    });
+    setRefundForm({ invoiceId: "", reason: "", amount: "" });
     setModal(null);
   };
 
@@ -447,76 +431,10 @@ export default function PaymentManagementPage() {
               className="text-orange-500 flex-shrink-0 mt-0.5"
             />
             <p className="text-[11px] text-orange-700">
-              Refunds are irreversible. Tenant will receive an email
-              notification after submission.
+              Refunds are irreversible. Please verify before submitting.
             </p>
           </div>
-
-          {/* Tenant Identity */}
-          <p className="text-[10px] font-bold text-[#C9A36A] uppercase tracking-wider mb-3">
-            Tenant Information
-          </p>
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Full Name *
-              </label>
-              <input
-                value={refundForm.tenantName || ""}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, tenantName: e.target.value })
-                }
-                placeholder="Tenant full name"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Email *
-              </label>
-              <input
-                value={refundForm.tenantEmail || ""}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, tenantEmail: e.target.value })
-                }
-                placeholder="tenant@email.com"
-                type="email"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Phone Number
-              </label>
-              <input
-                value={refundForm.tenantPhone || ""}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, tenantPhone: e.target.value })
-                }
-                placeholder="08xxxxxxxxxx"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Booking ID *
-              </label>
-              <input
-                value={refundForm.bookingId || ""}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, bookingId: e.target.value })
-                }
-                placeholder="e.g. BK-2206-001"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Refund Details */}
-          <p className="text-[10px] font-bold text-[#C9A36A] uppercase tracking-wider mb-3">
-            Refund Details
-          </p>
-          <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="space-y-4 mb-5">
             <div>
               <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                 Invoice ID *
@@ -546,66 +464,19 @@ export default function PaymentManagementPage() {
             </div>
             <div>
               <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Property
+                Reason *
               </label>
-              <input
-                value={refundForm.property || ""}
+              <textarea
+                value={refundForm.reason}
                 onChange={(e) =>
-                  setRefundForm({ ...refundForm, property: e.target.value })
+                  setRefundForm({ ...refundForm, reason: e.target.value })
                 }
-                placeholder="e.g. Wowo Business Pack"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
+                placeholder="Reason for refund..."
+                rows={3}
+                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none resize-none"
               />
             </div>
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Refund Method *
-              </label>
-              <select
-                value={refundForm.refundMethod || ""}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, refundMethod: e.target.value })
-                }
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              >
-                <option value="">Select method</option>
-                <option>BCA Transfer</option>
-                <option>Mandiri Transfer</option>
-                <option>BNI Transfer</option>
-                <option>BRI Transfer</option>
-                <option>Original Payment Method</option>
-              </select>
-            </div>
           </div>
-
-          <div className="mb-5">
-            <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-              Reason for Refund *
-            </label>
-            <textarea
-              value={refundForm.reason}
-              onChange={(e) =>
-                setRefundForm({ ...refundForm, reason: e.target.value })
-              }
-              placeholder="Provide a detailed reason for refund..."
-              rows={3}
-              className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none resize-none"
-            />
-          </div>
-
-          {/* Email notification note */}
-          <div className="flex items-center gap-2 bg-[#F5F0E8] rounded-xl p-3 mb-5">
-            <div className="w-6 h-6 bg-[#C9A36A]/20 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-[10px]">✉</span>
-            </div>
-            <p className="text-[10px] text-[#2B2B2B]/70">
-              An email notification will be sent to{" "}
-              <strong>{refundForm.tenantEmail || "tenant email"}</strong> after
-              submission.
-              {/* TODO: backend handle email via /api/admin/refund → NodeMailer/SendGrid */}
-            </p>
-          </div>
-
           <div className="flex gap-3">
             <button
               onClick={() => setModal(null)}
@@ -618,8 +489,7 @@ export default function PaymentManagementPage() {
               disabled={
                 !refundForm.invoiceId ||
                 !refundForm.amount ||
-                !refundForm.reason ||
-                !refundForm.tenantEmail
+                !refundForm.reason
               }
               className="flex-1 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50"
             >

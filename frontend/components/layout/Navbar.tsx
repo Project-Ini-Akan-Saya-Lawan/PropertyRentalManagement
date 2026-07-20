@@ -20,21 +20,9 @@ export default function Navbar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [username, setUsername] = useState("");
 
   useEffect(() => {
-    const loggedIn = !!localStorage.getItem("isLoggedIn");
-    setIsLoggedIn(loggedIn);
-
-    if (loggedIn) {
-      const stored = localStorage.getItem("user");
-      if (stored) {
-        try {
-          const user = JSON.parse(stored);
-          setUsername(user.username || "");
-        } catch {}
-      }
-    }
+    setIsLoggedIn(!!localStorage.getItem("isLoggedIn"));
   }, [pathname]);
 
   useEffect(() => {
@@ -46,16 +34,14 @@ export default function Navbar() {
 
   const handleLogout = () => {
     localStorage.removeItem("isLoggedIn");
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
     localStorage.removeItem("userEmail");
     setIsLoggedIn(false);
-    setUsername("");
     router.push("/");
   };
 
   return (
     <>
+      {/* Main bar */}
       <header className="fixed top-0 inset-x-0 z-50 bg-white border-b border-gray-200 h-[72px]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-full flex items-center justify-between gap-8">
           {/* Logo */}
@@ -98,15 +84,10 @@ export default function Navbar() {
             ))}
           </nav>
 
-          {/* Right */}
+          {/* Right: Account / Logout */}
           <div className="flex items-center gap-3">
             {isLoggedIn ? (
               <div className="hidden md:flex items-center gap-2">
-                {username && (
-                  <span className="text-xs text-gray-500 font-medium">
-                    Hi, {username.split(" ")[0]}
-                  </span>
-                )}
                 <Link
                   href="/account"
                   className="bg-[#C9A36A] hover:bg-[#A8834A] text-white text-sm font-semibold px-5 py-2 rounded-md transition-colors"
@@ -139,6 +120,7 @@ export default function Navbar() {
         </div>
       </header>
 
+      {/* Spacer */}
       <div className="h-[72px]" />
 
       {/* Mobile drawer */}
@@ -201,11 +183,6 @@ export default function Navbar() {
               <div className="mt-auto flex flex-col gap-2">
                 {isLoggedIn ? (
                   <>
-                    {username && (
-                      <p className="text-xs text-center text-gray-500">
-                        Hi, {username.split(" ")[0]}
-                      </p>
-                    )}
                     <Link
                       href="/account"
                       className="flex items-center justify-center bg-[#C9A36A] text-white font-semibold py-2.5 rounded-md text-sm hover:bg-[#A8834A] transition-colors"

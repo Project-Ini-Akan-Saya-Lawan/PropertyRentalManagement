@@ -13,7 +13,9 @@ import { getWorkspaceBySlug } from "@/data/workspaces";
 import { notFound } from "next/navigation";
 
 const schema = z.object({
+  tower: z.string().min(1, "Required"),
   floor: z.string().min(1, "Required"),
+  type: z.string().min(1, "Required"),
   commitmentTerms: z.string().min(1, "Required"),
   date: z.string().min(1, "Required"),
 });
@@ -34,27 +36,7 @@ const FLOORS = [
   "Floor 25",
 ];
 const TERMS = ["1 Year", "5 Years", "10 Years", "15 Years", "20 Years"];
-
-// Mapping slug → pack_id dari database
-const SLUG_TO_PACK_ID: Record<string, number> = {
-  "wowo-starter-pack": 1,
-  "wowo-business-pack": 2,
-  "wowo-executive-pack": 3,
-  "wowi-starter-pack": 4,
-  "wowi-business-pack": 5,
-  "wowi-executive-pack": 6,
-};
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-
-function calcEndDate(date: string, commitmentTerms: string): string | null {
-  if (!date || !commitmentTerms) return null;
-  const start = new Date(date);
-  const y = parseInt(commitmentTerms) || 1;
-  start.setFullYear(start.getFullYear() + y);
-  start.setDate(start.getDate() - 1);
-  return start.toISOString().split("T")[0];
-}
+const TYPES = ["Coworking Desk", "Business Executive", "Executive Suite"];
 
 export default function RentDetailsPage({
   params,
@@ -73,57 +55,20 @@ export default function RentDetailsPage({
     formState: { errors },
   } = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: {},
+    defaultValues: { tower: workspace.tower },
   });
 
   const w = watch();
-  const endDate = calcEndDate(w.date, w.commitmentTerms);
 
-  const onSubmit = async (data: Form) => {
-    // Simpan ke sessionStorage dulu untuk halaman berikutnya
-    sessionStorage.setItem(
-      `rent-${slug}`,
-      JSON.stringify({
-        ...data,
-        tower: workspace.tower,
-        type: workspace.workspaceType,
-        endDate,
-      }),
-    );
-
-    // Kirim booking ke backend
-    const token = localStorage.getItem("token");
-    const pack_id = SLUG_TO_PACK_ID[slug];
-    const floorNum = parseInt(data.floor.replace("Floor ", ""));
-    const years = parseInt(data.commitmentTerms) || 1;
-    const months = years * 12;
-
-    if (token && pack_id) {
-      try {
-        await fetch(`${API_URL}/api/bookings`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            pack_id,
-            floor_booked: floorNum,
-            start_date: data.date,
-            months,
-          }),
-        });
-      } catch (err) {
-        console.error("Failed to create booking:", err);
-      }
-    }
-
+  const onSubmit = (data: Form) => {
+    sessionStorage.setItem(`rent-${slug}`, JSON.stringify(data));
     router.push(`/workspace/${slug}/rent-details/confirm-details`);
   };
 
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
+        {/* Back */}
         <button
           onClick={() => router.back()}
           className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-700 mb-6 transition-colors"
@@ -138,33 +83,32 @@ export default function RentDetailsPage({
         <BookingStepper step={1} />
 
         <div className="grid lg:grid-cols-3 gap-8">
+          {/* Form */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             className="lg:col-span-2"
           >
             <form onSubmit={handleSubmit(onSubmit)}>
-              <div className="flex flex-col gap-5 mb-5">
-                {/* Tower - static */}
+              <div className="grid sm:grid-cols-2 gap-5 mb-5">
+                {/* Tower */}
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                     Tower
                   </label>
-                  <div className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 bg-[#F5F5F5]">
-                    {workspace.tower === "Wiwi Tower"
-                      ? "Wowi Tower"
-                      : workspace.tower}
-                  </div>
-                </div>
-
-                {/* Type Office - static */}
-                <div>
-                  <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                    Type Office
-                  </label>
-                  <div className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 bg-[#F5F5F5]">
-                    {workspace.workspaceType}
-                  </div>
+                  <select
+                    {...register("tower")}
+                    className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 bg-white appearance-none"
+                  >
+                    <option value="">Select tower</option>
+                    <option value="Wowo Tower">Wowo Tower</option>
+                    <option value="Wowi Tower">Wowi Tower</option>
+                  </select>
+                  {errors.tower && (
+                    <p className="text-red-500 text-[10px] mt-1">
+                      {errors.tower.message}
+                    </p>
+                  )}
                 </div>
 
                 {/* Commitment Terms */}
@@ -213,10 +157,10 @@ export default function RentDetailsPage({
                   )}
                 </div>
 
-                {/* Start Date */}
+                {/* Date */}
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                    Start Date
+                    Date
                   </label>
                   <input
                     type="date"
@@ -231,17 +175,27 @@ export default function RentDetailsPage({
                   )}
                 </div>
 
-                {/* End Date - auto calculated */}
-                <div>
+                {/* Type */}
+                <div className="sm:col-span-2">
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                    End Date
+                    Type
                   </label>
-                  <div
-                    className={`w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm bg-[#F5F5F5] ${endDate ? "text-[#C9A36A] font-semibold" : "text-gray-300"}`}
+                  <select
+                    {...register("type")}
+                    className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 bg-white"
                   >
-                    {endDate ||
-                      "Auto-filled after selecting Start Date & Commitment Terms"}
-                  </div>
+                    <option value="">Select type</option>
+                    {TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                  {errors.type && (
+                    <p className="text-red-500 text-[10px] mt-1">
+                      {errors.type.message}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -258,9 +212,8 @@ export default function RentDetailsPage({
           <BookingSummary
             workspace={workspace}
             floor={w.floor}
-            type={workspace.workspaceType}
+            type={w.type}
             date={w.date}
-            commitmentTerms={w.commitmentTerms}
           />
         </div>
       </div>

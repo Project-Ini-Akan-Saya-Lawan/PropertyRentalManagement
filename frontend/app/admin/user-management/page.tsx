@@ -25,6 +25,8 @@ interface Tenant {
   endDate: string;
 }
 
+const STORAGE_KEY = "admin_tenants";
+
 const STATUS_STYLE: Record<string, string> = {
   Active: "bg-blue-50 text-blue-700 border border-blue-200",
   Inactive: "bg-gray-100 text-gray-500 border border-gray-200",
@@ -34,8 +36,6 @@ const STATUS_STYLE: Record<string, string> = {
 
 const inputCls =
   "w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none transition-all";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
 function Modal({
   title,
@@ -97,47 +97,28 @@ export default function UserManagementPage() {
   const [modal, setModal] = useState<"edit" | "delete" | null>(null);
   const [selected, setSelected] = useState<Tenant | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    fetch(`${API_URL}/api/users`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-      .then((r) => r.json())
-      .then((result) => {
-        if (result.data) {
-          const mapped: Tenant[] = result.data.map(
-            (u: {
-              user_id: number;
-              username: string;
-              email: string;
-              phone_number: string;
-              role_id: number;
-            }) => ({
-              id: String(u.user_id),
-              name: u.username || "",
-              email: u.email || "",
-              phone: u.phone_number || "",
-              workspace: "",
-              status: u.role_id === 1 ? "Active" : "Pending",
-              startDate: "",
-              endDate: "",
-            }),
-          );
-          setData(mapped);
-        }
-      })
-      .catch((err) => console.error("Failed to fetch users:", err))
-      .finally(() => setLoading(false));
+    const stored = localStorage.getItem(STORAGE_KEY);
+    setData(stored ? JSON.parse(stored) : []);
   }, []);
+
+  const save = (updated: Tenant[]) => {
+    setData(updated);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  };
+
+  const handleAdd = () => {
+    save([...data, { ...form, id: Date.now().toString() } as Tenant]);
+    setModal(null);
+    setForm({});
+  };
 
   const handleEdit = () => {
     if (!selected) return;
-    // TODO: PUT /api/users/:id (admin endpoint)
-    setData(
+    save(
       data.map((u) =>
-        u.id === selected.id ? ({ ...u, ...form } as Tenant) : u,
+        u.id === selected.id ? ({ ...u, ...form } as unknown as Tenant) : u,
       ),
     );
     setModal(null);
@@ -147,8 +128,7 @@ export default function UserManagementPage() {
 
   const handleDelete = () => {
     if (!selected) return;
-    // TODO: DELETE /api/users/:id (admin endpoint)
-    setData(data.filter((u) => u.id !== selected.id));
+    save(data.filter((u) => u.id !== selected.id));
     setModal(null);
     setSelected(null);
   };
@@ -212,7 +192,7 @@ export default function UserManagementPage() {
             </label>
             <input
               type={f.type}
-              value={(form as Record<string, string>)[f.key] || ""}
+              value={(form as unknown as Record<string, string>)[f.key] || ""}
               onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
               placeholder={f.label}
               className={inputCls}
@@ -258,6 +238,7 @@ export default function UserManagementPage() {
 
   return (
     <div>
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1
@@ -270,14 +251,17 @@ export default function UserManagementPage() {
             Manage registered users (tenants & prospects)
           </p>
         </div>
-        <button
-          onClick={() => exportCSV(data)}
-          className="flex items-center gap-1.5 border-2 border-[#C9A36A]/40 text-[#C9A36A] text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-[#C9A36A]/5 transition-colors"
-        >
-          <Download size={13} /> Export CSV
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => exportCSV(data)}
+            className="flex items-center gap-1.5 border-2 border-[#C9A36A]/40 text-[#C9A36A] text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-[#C9A36A]/5 transition-colors"
+          >
+            <Download size={13} /> Export CSV
+          </button>
+        </div>
       </div>
 
+      {/* Stats */}
       <div className="grid grid-cols-4 gap-3 mb-6">
         {stats.map((s) => {
           const Icon = s.icon;
@@ -302,6 +286,7 @@ export default function UserManagementPage() {
         })}
       </div>
 
+      {/* Search + Filter */}
       <div className="flex items-center gap-3 mb-5">
         <div className="relative flex-1 max-w-xs">
           <Search
@@ -328,6 +313,7 @@ export default function UserManagementPage() {
         </div>
       </div>
 
+      {/* Table */}
       <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden">
         <table className="w-full">
           <thead className="bg-[#F5F0E8]">
@@ -350,16 +336,7 @@ export default function UserManagementPage() {
             </tr>
           </thead>
           <tbody>
-            {loading ? (
-              <tr>
-                <td
-                  colSpan={6}
-                  className="py-16 text-center text-sm text-[#2B2B2B]/40"
-                >
-                  Loading users...
-                </td>
-              </tr>
-            ) : filtered.length === 0 ? (
+            {filtered.length === 0 ? (
               <tr>
                 <td colSpan={6} className="py-16 text-center">
                   <Users size={28} className="text-[#C9A36A]/30 mx-auto mb-2" />
@@ -453,6 +430,7 @@ export default function UserManagementPage() {
         </div>
       </div>
 
+      {/* Edit Modal */}
       {modal === "edit" && selected && (
         <Modal
           title="Edit User"
@@ -465,6 +443,7 @@ export default function UserManagementPage() {
         </Modal>
       )}
 
+      {/* Delete Modal */}
       {modal === "delete" && selected && (
         <Modal title="Delete User" onClose={() => setModal(null)}>
           <div className="text-center py-4">
