@@ -2,11 +2,12 @@
 const express = require('express');
 const router = express.Router();
 const authenticateJWT = require('../middlewares/authenticatejwt');
+const adminAuth = require('../middlewares/adminAuth');
 const notificationsController = require('../controllers/notifications.controller');
 
 router.get('/', authenticateJWT, notificationsController.getMyNotifications);
-// router.post('/', authenticateJWT, notificationsController.createNotification);
-// router.put('/:id/read', authenticateJWT, notificationsController.markNotificationRead);
-// router.delete('/:id', authenticateJWT, notificationsController.deleteNotification);
+router.post('/', authenticateJWT, adminAuth, notificationsController.createNotification);
+router.put('/:id/read', authenticateJWT, notificationsController.markNotificationRead);
+router.delete('/:id', authenticateJWT, notificationsController.deleteNotification);
 
 module.exports = router;
