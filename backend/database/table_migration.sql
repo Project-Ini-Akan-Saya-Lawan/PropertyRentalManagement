@@ -1,5 +1,6 @@
-ALTER TABLE Bookings
-ADD COLUMN Deleted_at TIMESTAMP NULL;
+ALTER TABLE bookings
+ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+
 
 -- opsional tapi disarankan, biar query yang exclude soft-deleted row cepat
 CREATE INDEX idx_bookings_deleted_at ON Bookings (Deleted_at);
