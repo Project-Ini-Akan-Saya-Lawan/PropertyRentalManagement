@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -25,7 +24,6 @@ export default function Navbar() {
   useEffect(() => {
     const loggedIn = !!localStorage.getItem("isLoggedIn");
     setIsLoggedIn(loggedIn);
-
     if (loggedIn) {
       const stored = localStorage.getItem("user");
       if (stored) {
@@ -88,12 +86,16 @@ export default function Navbar() {
                 )}
               >
                 {label}
-                {isActive(href) && (
-                  <motion.span
-                    layoutId="nav-underline"
-                    className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#C9A36A] rounded-full"
-                  />
-                )}
+                {/* Underline — pakai scaleX bukan layoutId supaya animasinya konsisten */}
+                <motion.span
+                  className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#C9A36A] rounded-full origin-left"
+                  initial={false}
+                  animate={{
+                    scaleX: isActive(href) ? 1 : 0,
+                    opacity: isActive(href) ? 1 : 0,
+                  }}
+                  transition={{ duration: 0.2 }}
+                />
               </Link>
             ))}
           </nav>
