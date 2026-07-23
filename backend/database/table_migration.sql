@@ -3,6 +3,9 @@ BEGIN;
 ALTER TABLE bookings
 ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS company VARCHAR(255);
+
 CREATE INDEX IF NOT EXISTS idx_bookings_deleted_at
 ON bookings (deleted_at);
 

@@ -13,6 +13,18 @@ import { formatIDR } from "@/lib/utils";
 import { notFound } from "next/navigation";
 import Image from "next/image";
 
+// Mapping slug → pack_id
+const SLUG_TO_PACK_ID: Record<string, number> = {
+  "wowo-starter-pack": 1,
+  "wowo-business-pack": 2,
+  "wowo-executive-pack": 3,
+  "wowi-starter-pack": 4,
+  "wowi-business-pack": 5,
+  "wowi-executive-pack": 6,
+};
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+
 const schema = z.object({
   firstName: z.string().min(1, "Required"),
   surname: z.string().min(1, "Required"),
@@ -21,10 +33,26 @@ const schema = z.object({
   countryRegion: z.string().min(1, "Required"),
   postcode: z.string().min(3, "Required"),
   email: z.string().email("Invalid email"),
-  cardNumber: z.string().min(16, "Required"),
+  cardNumber: z.string().min(19, "Card number must be 16 digits"),
   cardholderName: z.string().min(2, "Required"),
-  expiryDate: z.string().min(4, "MM/YY required"),
-  cvv: z.string().min(3, "Required"),
+  expiryDate: z
+    .string()
+    .min(5, "MM/YY required")
+    .refine((v) => {
+      const [mm, yy] = v.split("/");
+      if (!mm || !yy) return false;
+      const month = parseInt(mm);
+      const year = parseInt("20" + yy);
+      if (month < 1 || month > 12) return false;
+      const now = new Date();
+      return (
+        new Date(year, month - 1) >= new Date(now.getFullYear(), now.getMonth())
+      );
+    }, "Card is expired or invalid"),
+  cvv: z
+    .string()
+    .min(3, "CVV must be 3 or 4 digits")
+    .max(4, "CVV must be 3 or 4 digits"),
 });
 
 type Form = z.infer<typeof schema>;
@@ -53,10 +81,12 @@ export default function PaymentPage({
     type?: string;
     date?: string;
     commitmentTerms?: string;
+    endDate?: string;
   }>({});
   const [done, setDone] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [selectedCard, setSelectedCard] = useState<string>("");
+  const [bookingError, setBookingError] = useState<string>("");
 
   useEffect(() => {
     const raw = sessionStorage.getItem(`rent-${slug}`);
@@ -92,10 +122,59 @@ export default function PaymentPage({
 
   const onSubmit = async () => {
     setProcessing(true);
-    await new Promise((r) => setTimeout(r, 1800));
-    setProcessing(false);
-    setDone(true);
-    setTimeout(() => router.push("/"), 3000);
+    setBookingError("");
+
+    try {
+      const token = localStorage.getItem("token");
+      const pack_id = SLUG_TO_PACK_ID[slug];
+      const floorNum = parseInt((rentData.floor || "").replace("Floor ", ""));
+      const months = years * 12;
+
+      if (!token || !pack_id || !rentData.date || !floorNum) {
+        setBookingError(
+          "Missing booking data. Please go back and fill in the details.",
+        );
+        setProcessing(false);
+        return;
+      }
+
+      // POST /api/bookings — hanya setelah payment form valid
+      const res = await fetch(`${API_URL}/api/bookings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          pack_id,
+          floor_booked: floorNum,
+          start_date: rentData.date,
+          months,
+        }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        setBookingError(
+          result.message || "Failed to create booking. Please try again.",
+        );
+        setProcessing(false);
+        return;
+      }
+
+      // Clear sessionStorage setelah booking berhasil
+      sessionStorage.removeItem(`rent-${slug}`);
+      sessionStorage.removeItem(`confirm-${slug}`);
+
+      setProcessing(false);
+      setDone(true);
+      setTimeout(() => router.push("/account"), 3000);
+    } catch (err) {
+      console.error(err);
+      setBookingError("Cannot connect to server. Please try again.");
+      setProcessing(false);
+    }
   };
 
   return (
@@ -115,7 +194,6 @@ export default function PaymentPage({
         <BookingStepper step={3} />
 
         <div className="grid lg:grid-cols-3 gap-8">
-          {/* Form */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
@@ -255,6 +333,10 @@ export default function PaymentPage({
                     type="password"
                     placeholder="3 or 4 digits"
                     maxLength={4}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+                      setValue("cvv", v);
+                    }}
                     className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
                   />
                   {errors.cvv && (
@@ -268,6 +350,15 @@ export default function PaymentPage({
               <div className="flex items-center gap-1.5 mt-3 text-[11px] text-gray-400">
                 <Lock size={11} /> Secured with 256-bit SSL encryption
               </div>
+
+              {/* Booking error */}
+              {bookingError && (
+                <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
+                  <p className="text-red-600 text-xs font-semibold">
+                    {bookingError}
+                  </p>
+                </div>
+              )}
             </form>
 
             {/* Buttons */}
@@ -380,7 +471,7 @@ export default function PaymentPage({
               </h2>
               <p className="text-sm text-gray-500">
                 Your workspace at <strong>{workspace.name}</strong> has been
-                booked. Redirecting…
+                booked. Redirecting to your account…
               </p>
             </motion.div>
           </motion.div>
