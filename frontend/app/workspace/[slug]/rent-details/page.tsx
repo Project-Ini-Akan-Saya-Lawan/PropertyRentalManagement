@@ -35,18 +35,6 @@ const FLOORS = [
 ];
 const TERMS = ["1 Year", "5 Years", "10 Years", "15 Years", "20 Years"];
 
-// Mapping slug → pack_id dari database
-const SLUG_TO_PACK_ID: Record<string, number> = {
-  "wowo-starter-pack": 1,
-  "wowo-business-pack": 2,
-  "wowo-executive-pack": 3,
-  "wowi-starter-pack": 4,
-  "wowi-business-pack": 5,
-  "wowi-executive-pack": 6,
-};
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-
 function calcEndDate(date: string, commitmentTerms: string): string | null {
   if (!date || !commitmentTerms) return null;
   const start = new Date(date);
@@ -79,8 +67,8 @@ export default function RentDetailsPage({
   const w = watch();
   const endDate = calcEndDate(w.date, w.commitmentTerms);
 
-  const onSubmit = async (data: Form) => {
-    // Simpan ke sessionStorage dulu untuk halaman berikutnya
+  const onSubmit = (data: Form) => {
+    // Simpan ke sessionStorage saja — booking dibuat setelah payment berhasil
     sessionStorage.setItem(
       `rent-${slug}`,
       JSON.stringify({
@@ -90,34 +78,6 @@ export default function RentDetailsPage({
         endDate,
       }),
     );
-
-    // Kirim booking ke backend
-    const token = localStorage.getItem("token");
-    const pack_id = SLUG_TO_PACK_ID[slug];
-    const floorNum = parseInt(data.floor.replace("Floor ", ""));
-    const years = parseInt(data.commitmentTerms) || 1;
-    const months = years * 12;
-
-    if (token && pack_id) {
-      try {
-        await fetch(`${API_URL}/api/bookings`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            pack_id,
-            floor_booked: floorNum,
-            start_date: data.date,
-            months,
-          }),
-        });
-      } catch (err) {
-        console.error("Failed to create booking:", err);
-      }
-    }
-
     router.push(`/workspace/${slug}/rent-details/confirm-details`);
   };
 
@@ -145,7 +105,6 @@ export default function RentDetailsPage({
           >
             <form onSubmit={handleSubmit(onSubmit)}>
               <div className="flex flex-col gap-5 mb-5">
-                {/* Tower - static */}
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                     Tower
@@ -157,7 +116,6 @@ export default function RentDetailsPage({
                   </div>
                 </div>
 
-                {/* Type Office - static */}
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                     Type Office
@@ -167,7 +125,6 @@ export default function RentDetailsPage({
                   </div>
                 </div>
 
-                {/* Commitment Terms */}
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                     Commitment Terms
@@ -190,7 +147,6 @@ export default function RentDetailsPage({
                   )}
                 </div>
 
-                {/* Floor */}
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                     Floor
@@ -213,7 +169,6 @@ export default function RentDetailsPage({
                   )}
                 </div>
 
-                {/* Start Date */}
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                     Start Date
@@ -231,7 +186,6 @@ export default function RentDetailsPage({
                   )}
                 </div>
 
-                {/* End Date - auto calculated */}
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                     End Date
@@ -254,7 +208,6 @@ export default function RentDetailsPage({
             </form>
           </motion.div>
 
-          {/* Summary */}
           <BookingSummary
             workspace={workspace}
             floor={w.floor}

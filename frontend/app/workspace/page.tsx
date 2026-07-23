@@ -5,74 +5,25 @@ import HeroSection from "@/components/sections/HeroSection";
 import AmenitiesSection from "@/components/sections/AmenitiesSection";
 import Footer from "@/components/layout/Footer";
 import WorkspaceCard from "@/components/cards/WorkspaceCard";
-import { getWowoWorkspaces, getWowiWorkspaces } from "@/data/workspaces";
+import {
+  apiPackToWorkspace,
+  getWowoWorkspaces,
+  getWowiWorkspaces,
+} from "@/data/workspaces";
 import { Workspace } from "@/types";
 import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-const STORAGE_KEY = "admin_properties";
-
-interface AdminProperty {
-  id: string;
-  name: string;
-  tower: string;
-  floor: string;
-  type: string;
-  capacity: number;
-  price: number;
-  status: "Available" | "Occupied" | "Maintenance";
-  owner: string;
-  createdAt: string;
-  image: string;
-  slug: string;
-  description: string;
-  longDescription: string;
-  features: string[];
-}
-
-function adminToWorkspace(p: AdminProperty): Workspace {
-  return {
-    id: p.id,
-    slug: `admin-property/${p.slug || p.id}`,
-    name: p.name,
-    tower: p.tower as "Wowo Tower" | "Wiwi Tower",
-    pack: (p.type || "Starter Pack") as
-      | "Starter Pack"
-      | "Business Pack"
-      | "Executive Pack",
-    description: p.description || `${p.type} at ${p.tower}`,
-    longDescription:
-      p.longDescription ||
-      `${p.name} is a premium workspace at ${p.tower}, ${p.floor}.`,
-    image: p.image || "/buildings/building-front.png",
-    gallery: [p.image || "/buildings/building-front.png"],
-    capacity: p.capacity,
-    workspaceType: p.type,
-    floorRange: p.floor,
-    monthlyPrice: p.price,
-    taxRate: 0.11,
-    securityDeposit: p.price * 2,
-    features: p.features?.filter(Boolean) || [
-      p.floor,
-      `Up to ${p.capacity} people`,
-      p.type,
-    ],
-    availability:
-      p.status === "Available"
-        ? "Available"
-        : p.status === "Occupied"
-          ? "Full"
-          : "Limited",
-    relatedSlugs: [],
-  };
-}
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
 function WorkspaceCarousel({
   title,
   workspaces,
+  bg,
 }: {
   title: string;
   workspaces: Workspace[];
+  bg?: string;
 }) {
   const [index, setIndex] = useState(0);
   const VISIBLE = 3;
@@ -84,7 +35,7 @@ function WorkspaceCarousel({
   const visible = workspaces.slice(index, index + VISIBLE);
 
   return (
-    <section className="py-10 bg-white border-t border-gray-100">
+    <section className={`py-10 border-t border-gray-100 ${bg || "bg-white"}`}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between mb-6">
           <h2
@@ -147,22 +98,28 @@ function WorkspaceCarousel({
 }
 
 export default function WorkspacePage() {
-  const [adminProperties, setAdminProperties] = useState<AdminProperty[]>([]);
+  const [wowoWorkspaces, setWowoWorkspaces] =
+    useState<Workspace[]>(getWowoWorkspaces());
+  const [wowiWorkspaces, setWowiWorkspaces] =
+    useState<Workspace[]>(getWowiWorkspaces());
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) setAdminProperties(JSON.parse(stored));
+    // Fetch dari API dan merge dengan static data
+    fetch(`${API_URL}/api/floor-packs`)
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) {
+          const all = result.data.map(apiPackToWorkspace);
+          const wowo = all.filter((w: Workspace) => w.tower === "Wowo Tower");
+          const wowi = all.filter((w: Workspace) => w.tower === "Wiwi Tower");
+          if (wowo.length > 0) setWowoWorkspaces(wowo);
+          if (wowi.length > 0) setWowiWorkspaces(wowi);
+        }
+      })
+      .catch(() => {
+        // Fallback ke static data sudah di-set di useState default
+      });
   }, []);
-
-  const staticWowo = getWowoWorkspaces();
-  const staticWowi = getWowiWorkspaces();
-
-  const adminWowo = adminProperties
-    .filter((p) => p.tower === "Wowo Tower")
-    .map(adminToWorkspace);
-  const adminWowi = adminProperties
-    .filter((p) => p.tower === "Wowi Tower")
-    .map(adminToWorkspace);
 
   return (
     <>
@@ -174,12 +131,13 @@ export default function WorkspacePage() {
       />
       <WorkspaceCarousel
         title="Our services at Wowo Tower"
-        workspaces={[...staticWowo, ...adminWowo]}
+        workspaces={wowoWorkspaces}
       />
       <div className="bg-[#F5F5F5]">
         <WorkspaceCarousel
           title="Our services at Wowi Tower"
-          workspaces={[...staticWowi, ...adminWowi]}
+          workspaces={wowiWorkspaces}
+          bg="bg-[#F5F5F5]"
         />
       </div>
       <AmenitiesSection />

@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -20,12 +19,13 @@ export default function Navbar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [username, setUsername] = useState("");
 
   useEffect(() => {
     const loggedIn = !!localStorage.getItem("isLoggedIn");
     setIsLoggedIn(loggedIn);
-
+    setIsAdmin(!!localStorage.getItem("isAdmin"));
     if (loggedIn) {
       const stored = localStorage.getItem("user");
       if (stored) {
@@ -46,10 +46,12 @@ export default function Navbar() {
 
   const handleLogout = () => {
     localStorage.removeItem("isLoggedIn");
+    localStorage.removeItem("isAdmin");
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     localStorage.removeItem("userEmail");
     setIsLoggedIn(false);
+    setIsAdmin(false);
     setUsername("");
     router.push("/");
   };
@@ -88,12 +90,16 @@ export default function Navbar() {
                 )}
               >
                 {label}
-                {isActive(href) && (
-                  <motion.span
-                    layoutId="nav-underline"
-                    className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#C9A36A] rounded-full"
-                  />
-                )}
+                {/* Underline — pakai scaleX bukan layoutId supaya animasinya konsisten */}
+                <motion.span
+                  className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#C9A36A] rounded-full origin-left"
+                  initial={false}
+                  animate={{
+                    scaleX: isActive(href) ? 1 : 0,
+                    opacity: isActive(href) ? 1 : 0,
+                  }}
+                  transition={{ duration: 0.2 }}
+                />
               </Link>
             ))}
           </nav>
@@ -108,10 +114,10 @@ export default function Navbar() {
                   </span>
                 )}
                 <Link
-                  href="/account"
+                  href={isAdmin ? "/admin/dashboard" : "/account"}
                   className="bg-[#C9A36A] hover:bg-[#A8834A] text-white text-sm font-semibold px-5 py-2 rounded-md transition-colors"
                 >
-                  Account
+                  {isAdmin ? "Admin Panel" : "Account"}
                 </Link>
                 <button
                   onClick={handleLogout}
@@ -207,10 +213,10 @@ export default function Navbar() {
                       </p>
                     )}
                     <Link
-                      href="/account"
+                      href={isAdmin ? "/admin/dashboard" : "/account"}
                       className="flex items-center justify-center bg-[#C9A36A] text-white font-semibold py-2.5 rounded-md text-sm hover:bg-[#A8834A] transition-colors"
                     >
-                      Account
+                      {isAdmin ? "Admin Panel" : "Account"}
                     </Link>
                     <button
                       onClick={handleLogout}
