@@ -11,7 +11,6 @@ type UserData = {
   email: string;
   phone: string;
   company: string;
-  position: string;
 };
 
 type Booking = {
@@ -24,13 +23,7 @@ type Booking = {
   total: string;
 };
 
-const emptyUser: UserData = {
-  fullName: "",
-  email: "",
-  phone: "",
-  company: "",
-  position: "",
-};
+const emptyUser: UserData = { fullName: "", email: "", phone: "", company: "" };
 
 const statusColor: Record<string, string> = {
   Completed: "text-green-600",
@@ -48,7 +41,6 @@ export default function AccountPage() {
   const [form, setForm] = useState<UserData>(emptyUser);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [userId, setUserId] = useState<string>("");
 
   useEffect(() => {
     const isLoggedIn = localStorage.getItem("isLoggedIn");
@@ -59,7 +51,7 @@ export default function AccountPage() {
 
     const token = localStorage.getItem("token");
 
-    // Fetch profil dari API
+    // Fetch profile dari API
     fetch(`${API_URL}/api/users/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -71,17 +63,13 @@ export default function AccountPage() {
           fullName: parsed.username || "",
           email: parsed.email || "",
           phone: parsed.phone_number || "",
-          company: "-",
-          position: "-",
+          company: parsed.company || "",
         };
         setUser(mapped);
         setForm(mapped);
-        setUserId(String(parsed.user_id || ""));
-        // Update localStorage juga
         localStorage.setItem("user", JSON.stringify(parsed));
       })
       .catch(() => {
-        // Fallback ke localStorage kalau API gagal
         const storedUser = localStorage.getItem("user");
         if (storedUser) {
           try {
@@ -90,12 +78,10 @@ export default function AccountPage() {
               fullName: parsed.username || "",
               email: parsed.email || "",
               phone: parsed.phone_number || "",
-              company: "-",
-              position: "-",
+              company: parsed.company || "",
             };
             setUser(mapped);
             setForm(mapped);
-            setUserId(String(parsed.user_id || ""));
           } catch {}
         }
       })
@@ -152,27 +138,23 @@ export default function AccountPage() {
         body: JSON.stringify({
           username: form.fullName,
           phone_number: form.phone,
+          company: form.company,
         }),
       });
-
       const result = await res.json();
-
       if (res.ok && result.data) {
-        // Update localStorage dengan data terbaru dari server
         localStorage.setItem("user", JSON.stringify(result.data));
         const updated: UserData = {
           fullName: result.data.username || "",
           email: result.data.email || "",
           phone: result.data.phone_number || "",
           company: form.company,
-          position: form.position,
         };
         setUser(updated);
         setForm(updated);
       } else {
         setUser(form);
       }
-
       setEditing(false);
     } catch (err) {
       console.error(err);
@@ -217,7 +199,6 @@ export default function AccountPage() {
               </button>
             </div>
 
-            {/* Avatar */}
             <div className="flex flex-col items-center mb-5">
               <div className="w-14 h-14 rounded-full bg-[#C9A36A]/10 border border-[#C9A36A]/20 flex items-center justify-center mb-2">
                 <User size={26} className="text-[#C9A36A]" />
@@ -231,14 +212,13 @@ export default function AccountPage() {
                   { label: "Email", key: "email" },
                   { label: "Phone Number", key: "phone" },
                   { label: "Company", key: "company" },
-                  { label: "Position", key: "position" },
                 ].map(({ label, key }) => (
                   <div key={key}>
                     <label className="text-[10px] text-gray-400 block mb-0.5">
                       {label}
                     </label>
                     <input
-                      value={form[key as keyof typeof form]}
+                      value={form[key as keyof UserData]}
                       onChange={(e) =>
                         setForm({ ...form, [key]: e.target.value })
                       }
@@ -271,7 +251,6 @@ export default function AccountPage() {
                   { label: "Email", value: user.email },
                   { label: "Phone Number", value: user.phone },
                   { label: "Company", value: user.company },
-                  { label: "Position", value: user.position },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex gap-2">
                     <span className="text-xs font-semibold text-gray-500 w-28 flex-shrink-0">

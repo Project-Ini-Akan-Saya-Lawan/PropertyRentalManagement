@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import {
   Plus,
   Search,
@@ -10,63 +10,44 @@ import {
   Eye,
   X,
   Building2,
-  Upload,
-  ImageIcon,
 } from "lucide-react";
-import Image from "next/image";
 
-interface Property {
-  id: string;
-  name: string;
-  tower: string;
-  floor: string;
-  type: string;
-  capacity: number;
-  price: number;
-  status: "Available" | "Occupied" | "Maintenance";
-  owner: string;
-  createdAt: string;
-  image: string;
-  slug: string;
+interface FloorPack {
+  pack_id: number;
+  pack_name: string;
+  property_id: number;
   description: string;
-  longDescription: string;
-  features: string[];
+  floor_range: string;
+  price: number;
 }
-type FormData = Omit<Property, "id" | "createdAt" | "slug">;
+
+interface FormData {
+  pack_name: string;
+  property_id: number;
+  description: string;
+  floor_range: string;
+  price: number;
+}
 
 const EMPTY: FormData = {
-  name: "",
-  tower: "",
-  floor: "",
-  type: "",
-  capacity: 0,
-  price: 0,
-  status: "Available",
-  owner: "",
-  image: "",
+  pack_name: "",
+  property_id: 1,
   description: "",
-  longDescription: "",
-  features: ["", "", "", ""],
+  floor_range: "",
+  price: 0,
 };
 
-const STATUS_STYLE: Record<string, string> = {
-  Available: "bg-green-50 text-green-700 border border-green-200",
-  Occupied: "bg-blue-50 text-blue-700 border border-blue-200",
-  Maintenance: "bg-orange-50 text-orange-700 border border-orange-200",
-};
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
-const STORAGE_KEY = "admin_properties";
+const TOWERS = [
+  { id: 1, name: "Wowo Tower" },
+  { id: 2, name: "Wowi Tower" },
+];
+
 const inputCls =
   "w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none transition-all";
 const textareaCls =
   "w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none transition-all resize-none";
-
-function toSlug(n: string) {
-  return n
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
-}
 
 function Modal({
   title,
@@ -79,7 +60,7 @@ function Modal({
 }) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg my-4">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h3
             className="font-bold text-[#2B2B2B]"
@@ -94,13 +75,13 @@ function Modal({
             <X size={16} className="text-gray-500" />
           </button>
         </div>
-        <div className="p-6 max-h-[80vh] overflow-y-auto">{children}</div>
+        <div className="p-6">{children}</div>
       </div>
     </div>
   );
 }
 
-function PropertyForm({
+function PackForm({
   initial,
   onSubmit,
   onCancel,
@@ -111,254 +92,74 @@ function PropertyForm({
   onCancel: () => void;
   submitLabel: string;
 }) {
-  const [name, setName] = useState(initial.name);
-  const [tower, setTower] = useState(initial.tower);
-  const [floor, setFloor] = useState(initial.floor);
-  const [type, setType] = useState(initial.type);
-  const [capacity, setCapacity] = useState(initial.capacity);
-  const [price, setPrice] = useState(initial.price);
-  const [status, setStatus] = useState(initial.status);
-  const [owner, setOwner] = useState(initial.owner);
-  const [image, setImage] = useState(initial.image);
-  const [description, setDescription] = useState(initial.description);
-  const [longDescription, setLongDescription] = useState(
-    initial.longDescription,
-  );
-  const [features, setFeatures] = useState<string[]>(
-    initial.features.length ? initial.features : ["", "", "", ""],
-  );
-  const imgRef = useRef<HTMLInputElement>(null);
-
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setImage(reader.result as string);
-    reader.readAsDataURL(file);
-  };
-
-  const setFeature = (i: number, v: string) => {
-    const f = [...features];
-    f[i] = v;
-    setFeatures(f);
-  };
+  const [form, setForm] = useState<FormData>(initial);
 
   return (
-    <>
-      {/* Section 1: Basic Info */}
-      <p className="text-xs font-bold text-[#C9A36A] uppercase tracking-wider mb-3">
-        Basic Information
-      </p>
-      <div className="grid grid-cols-2 gap-4 mb-5">
-        <div>
-          <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-            Property Name *
-          </label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Wowo Starter Pack"
-            className={inputCls}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-            Tower *
-          </label>
-          <select
-            value={tower}
-            onChange={(e) => setTower(e.target.value)}
-            className={inputCls}
-          >
-            <option value="">Select tower</option>
-            <option>Wowo Tower</option>
-            <option>Wowi Tower</option>
-          </select>
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-            Floor Range *
-          </label>
-          <input
-            value={floor}
-            onChange={(e) => setFloor(e.target.value)}
-            placeholder="e.g. Floor 5-10"
-            className={inputCls}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-            Workspace Type *
-          </label>
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            className={inputCls}
-          >
-            <option value="">Select type</option>
-            <option>Coworking Desk</option>
-            <option>Business Executive</option>
-            <option>Executive Suite</option>
-          </select>
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-            Capacity (pax)
-          </label>
-          <input
-            type="number"
-            value={capacity}
-            onChange={(e) => setCapacity(+e.target.value)}
-            className={inputCls}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-            Monthly Price (Rp)
-          </label>
-          <input
-            type="number"
-            value={price}
-            onChange={(e) => setPrice(+e.target.value)}
-            className={inputCls}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-            Status
-          </label>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as Property["status"])}
-            className={inputCls}
-          >
-            <option>Available</option>
-            <option>Occupied</option>
-            <option>Maintenance</option>
-          </select>
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-            Owner Name
-          </label>
-          <input
-            value={owner}
-            onChange={(e) => setOwner(e.target.value)}
-            placeholder="Owner name"
-            className={inputCls}
-          />
-        </div>
+    <div className="space-y-4">
+      <div>
+        <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
+          Pack Name *
+        </label>
+        <input
+          value={form.pack_name}
+          onChange={(e) => setForm({ ...form, pack_name: e.target.value })}
+          placeholder="e.g. Wowo Starter Pack"
+          className={inputCls}
+        />
       </div>
-
-      {/* Section 2: Description */}
-      <p className="text-xs font-bold text-[#C9A36A] uppercase tracking-wider mb-3">
-        Description
-      </p>
-      <div className="space-y-4 mb-5">
-        <div>
-          <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-            Short Description{" "}
-            <span className="text-[#2B2B2B]/40 font-normal">
-              (shown on card)
-            </span>
-          </label>
-          <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. Ideal for startups and small teams"
-            className={inputCls}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-            Full Description{" "}
-            <span className="text-[#2B2B2B]/40 font-normal">
-              (shown on detail page)
-            </span>
-          </label>
-          <textarea
-            value={longDescription}
-            onChange={(e) => setLongDescription(e.target.value)}
-            placeholder="Describe the workspace in detail — location, ambience, what makes it special..."
-            rows={4}
-            className={textareaCls}
-          />
-        </div>
+      <div>
+        <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
+          Tower *
+        </label>
+        <select
+          value={form.property_id}
+          onChange={(e) =>
+            setForm({ ...form, property_id: Number(e.target.value) })
+          }
+          className={inputCls}
+        >
+          {TOWERS.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
       </div>
-
-      {/* Section 3: Features */}
-      <p className="text-xs font-bold text-[#C9A36A] uppercase tracking-wider mb-3">
-        Features{" "}
-        <span className="text-[#2B2B2B]/40 font-normal normal-case">
-          (shown as bullet points on detail page)
-        </span>
-      </p>
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        {features.map((f, i) => (
-          <div key={i}>
-            <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-              Feature {i + 1}
-            </label>
-            <input
-              value={f}
-              onChange={(e) => setFeature(i, e.target.value)}
-              placeholder={
-                [
-                  "Available in floors " + floor,
-                  "Ideal for teams",
-                  "Shared lounge & pantry access",
-                  "Hot desk with secure locker",
-                ][i] || "Feature..."
-              }
-              className={inputCls}
-            />
-          </div>
-        ))}
+      <div>
+        <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
+          Floor Range *
+        </label>
+        <input
+          value={form.floor_range}
+          onChange={(e) => setForm({ ...form, floor_range: e.target.value })}
+          placeholder="e.g. 5-10"
+          className={inputCls}
+        />
       </div>
-
-      {/* Section 4: Image */}
-      <p className="text-xs font-bold text-[#C9A36A] uppercase tracking-wider mb-3">
-        Workspace Image *
-      </p>
-      <input
-        ref={imgRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleFile}
-      />
-      <div
-        onClick={() => imgRef.current?.click()}
-        className="border-2 border-dashed border-[#C9A36A]/40 rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-[#C9A36A] hover:bg-[#C9A36A]/5 transition-all min-h-[100px] mb-5"
-      >
-        {image ? (
-          <div className="relative w-full h-36 rounded-lg overflow-hidden">
-            <Image src={image} alt="Preview" fill className="object-cover" />
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setImage("");
-              }}
-              className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5"
-            >
-              <X size={10} />
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="w-10 h-10 bg-[#C9A36A]/10 rounded-full flex items-center justify-center">
-              <Upload size={18} className="text-[#C9A36A]" />
-            </div>
-            <p className="text-xs font-semibold text-[#2B2B2B]">
-              Click to upload image
-            </p>
-            <p className="text-[10px] text-[#2B2B2B]/40">PNG, JPG up to 5MB</p>
-          </>
-        )}
+      <div>
+        <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
+          Price (Rp/year) *
+        </label>
+        <input
+          type="number"
+          value={form.price}
+          onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
+          className={inputCls}
+        />
       </div>
-
-      <div className="flex gap-3 justify-end">
+      <div>
+        <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
+          Description
+        </label>
+        <textarea
+          value={form.description}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
+          rows={3}
+          placeholder="Describe this pack..."
+          className={textareaCls}
+        />
+      </div>
+      <div className="flex gap-3 justify-end pt-2">
         <button
           onClick={onCancel}
           className="px-5 py-2 text-xs font-semibold border-2 border-gray-200 rounded-lg text-[#2B2B2B] hover:bg-gray-50 transition-colors"
@@ -366,90 +167,95 @@ function PropertyForm({
           Cancel
         </button>
         <button
-          onClick={() =>
-            onSubmit({
-              name,
-              tower,
-              floor,
-              type,
-              capacity,
-              price,
-              status,
-              owner,
-              image,
-              description,
-              longDescription,
-              features: features.filter(Boolean),
-            })
-          }
-          disabled={!name || !tower || !image}
+          onClick={() => onSubmit(form)}
+          disabled={!form.pack_name || !form.floor_range}
           className="px-5 py-2 text-xs font-bold bg-[#C9A36A] hover:bg-[#A8834A] text-white rounded-lg transition-colors disabled:opacity-50"
         >
           {submitLabel}
         </button>
       </div>
-    </>
+    </div>
   );
 }
 
 export default function PropertyManagementPage() {
-  const [properties, setProperties] = useState<Property[]>([]);
+  const [packs, setPacks] = useState<FloorPack[]>([]);
   const [search, setSearch] = useState("");
-  const [filterStatus, setFilter] = useState("All");
+  const [filter, setFilter] = useState("All");
   const [modal, setModal] = useState<"add" | "edit" | "view" | "delete" | null>(
     null,
   );
-  const [selected, setSelected] = useState<Property | null>(null);
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [selected, setSelected] = useState<FloorPack | null>(null);
+  const [openMenu, setOpenMenu] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("token") : "";
+
+  const fetchPacks = () => {
+    setLoading(true);
+    fetch(`${API_URL}/api/floor-packs`)
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) setPacks(result.data);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    const s = localStorage.getItem(STORAGE_KEY);
-    if (s) setProperties(JSON.parse(s));
+    fetchPacks();
   }, []);
 
-  const save = (updated: Property[]) => {
-    setProperties(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  const handleAdd = async (data: FormData) => {
+    await fetch(`${API_URL}/api/floor-packs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    });
+    fetchPacks();
+    setModal(null);
   };
 
-  const filtered = properties.filter((p) => {
+  const handleEdit = async (data: FormData) => {
+    if (!selected) return;
+    await fetch(`${API_URL}/api/floor-packs/${selected.pack_id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    });
+    fetchPacks();
+    setModal(null);
+    setSelected(null);
+  };
+
+  const handleDelete = async () => {
+    if (!selected) return;
+    await fetch(`${API_URL}/api/floor-packs/${selected.pack_id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    fetchPacks();
+    setModal(null);
+    setSelected(null);
+  };
+
+  const getTowerName = (id: number) =>
+    TOWERS.find((t) => t.id === id)?.name || `Tower ${id}`;
+
+  const filtered = packs.filter((p) => {
     const ms =
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.owner.toLowerCase().includes(search.toLowerCase());
-    const mf = filterStatus === "All" || p.status === filterStatus;
+      p.pack_name.toLowerCase().includes(search.toLowerCase()) ||
+      p.description?.toLowerCase().includes(search.toLowerCase());
+    const mf = filter === "All" || getTowerName(p.property_id) === filter;
     return ms && mf;
   });
-
-  const handleAdd = (data: FormData) => {
-    save([
-      {
-        ...data,
-        id: Date.now().toString(),
-        slug: toSlug(data.name),
-        createdAt: new Date().toLocaleDateString("en-GB"),
-      },
-      ...properties,
-    ]);
-    setModal(null);
-  };
-
-  const handleEdit = (data: FormData) => {
-    if (!selected) return;
-    save(
-      properties.map((p) =>
-        p.id === selected.id ? { ...p, ...data, slug: toSlug(data.name) } : p,
-      ),
-    );
-    setModal(null);
-    setSelected(null);
-  };
-
-  const handleDelete = () => {
-    if (!selected) return;
-    save(properties.filter((p) => p.id !== selected.id));
-    setModal(null);
-    setSelected(null);
-  };
 
   return (
     <div>
@@ -462,14 +268,14 @@ export default function PropertyManagementPage() {
             Property Management
           </h1>
           <p className="text-xs font-medium text-[#2B2B2B]/50 mt-0.5">
-            {properties.length} total properties
+            {packs.length} total packages
           </p>
         </div>
         <button
           onClick={() => setModal("add")}
           className="flex items-center gap-2 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors"
         >
-          <Plus size={14} /> Add Property
+          <Plus size={14} /> Add Package
         </button>
       </div>
 
@@ -482,18 +288,18 @@ export default function PropertyManagementPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search property or owner..."
+            placeholder="Search package..."
             className="w-full pl-8 pr-3 py-2 text-xs border-2 border-[#C9A36A]/30 rounded-lg focus:border-[#C9A36A] outline-none bg-white text-[#2B2B2B]"
           />
         </div>
         <div className="flex gap-1">
-          {["All", "Available", "Occupied", "Maintenance"].map((s) => (
+          {["All", "Wowo Tower", "Wowi Tower"].map((f) => (
             <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={`px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${filterStatus === s ? "bg-[#C9A36A] text-white" : "border-2 border-[#C9A36A]/30 text-[#2B2B2B] hover:border-[#C9A36A]"}`}
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${filter === f ? "bg-[#C9A36A] text-white" : "border-2 border-[#C9A36A]/30 text-[#2B2B2B] hover:border-[#C9A36A]"}`}
             >
-              {s}
+              {f}
             </button>
           ))}
         </div>
@@ -504,15 +310,12 @@ export default function PropertyManagementPage() {
           <thead className="bg-[#F5F0E8]">
             <tr>
               {[
-                "Image",
-                "Property Name",
+                "Pack ID",
+                "Pack Name",
                 "Tower",
-                "Floor",
-                "Type",
-                "Capacity",
-                "Price/mo",
-                "Status",
-                "Owner",
+                "Floor Range",
+                "Price/Year",
+                "Description",
                 "Actions",
               ].map((h) => (
                 <th
@@ -525,18 +328,24 @@ export default function PropertyManagementPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {loading ? (
               <tr>
-                <td colSpan={10} className="py-16 text-center">
+                <td
+                  colSpan={7}
+                  className="py-12 text-center text-sm text-[#2B2B2B]/30"
+                >
+                  Loading...
+                </td>
+              </tr>
+            ) : filtered.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="py-16 text-center">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 bg-[#C9A36A]/10 rounded-full flex items-center justify-center">
                       <Building2 size={22} className="text-[#C9A36A]" />
                     </div>
                     <p className="text-sm font-bold text-[#2B2B2B]">
-                      No properties yet
-                    </p>
-                    <p className="text-xs text-[#2B2B2B]/40">
-                      Click &quot;Add Property&quot; to get started
+                      No packages found
                     </p>
                   </div>
                 </td>
@@ -544,62 +353,37 @@ export default function PropertyManagementPage() {
             ) : (
               filtered.map((p) => (
                 <tr
-                  key={p.id}
+                  key={p.pack_id}
                   className="border-t border-[#C9A36A]/10 hover:bg-[#F5F0E8]/50 transition-colors"
                 >
-                  <td className="px-4 py-3">
-                    <div className="w-12 h-10 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
-                      {p.image ? (
-                        <Image
-                          src={p.image}
-                          alt={p.name}
-                          width={48}
-                          height={40}
-                          className="object-cover w-full h-full"
-                        />
-                      ) : (
-                        <ImageIcon size={14} className="text-gray-300" />
-                      )}
-                    </div>
+                  <td className="px-4 py-3 text-xs font-bold text-[#C9A36A]">
+                    #{p.pack_id}
                   </td>
                   <td className="px-4 py-3 text-xs font-bold text-[#2B2B2B]">
-                    {p.name}
+                    {p.pack_name}
                   </td>
                   <td className="px-4 py-3 text-xs text-[#2B2B2B]/70">
-                    {p.tower}
+                    {getTowerName(p.property_id)}
                   </td>
                   <td className="px-4 py-3 text-xs text-[#2B2B2B]/70">
-                    {p.floor}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-[#2B2B2B]/70">
-                    {p.type}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-[#2B2B2B]/70">
-                    {p.capacity} pax
+                    Floor {p.floor_range}
                   </td>
                   <td className="px-4 py-3 text-xs font-semibold text-[#2B2B2B]">
-                    Rp {p.price.toLocaleString("id-ID")}
+                    Rp {Number(p.price).toLocaleString("id-ID")}
                   </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`text-[10px] font-bold px-2 py-1 rounded-full ${STATUS_STYLE[p.status]}`}
-                    >
-                      {p.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-[#2B2B2B]/70">
-                    {p.owner}
+                  <td className="px-4 py-3 text-xs text-[#2B2B2B]/70 max-w-[200px] truncate">
+                    {p.description || "-"}
                   </td>
                   <td className="px-4 py-3 relative">
                     <button
                       onClick={() =>
-                        setOpenMenu(openMenu === p.id ? null : p.id)
+                        setOpenMenu(openMenu === p.pack_id ? null : p.pack_id)
                       }
                       className="p-1.5 hover:bg-[#C9A36A]/10 rounded-lg transition-colors"
                     >
                       <MoreVertical size={14} className="text-[#2B2B2B]/50" />
                     </button>
-                    {openMenu === p.id && (
+                    {openMenu === p.pack_id && (
                       <div className="absolute right-8 top-2 bg-white border-2 border-[#C9A36A]/20 rounded-xl shadow-lg z-20 w-32 overflow-hidden">
                         <button
                           onClick={() => {
@@ -641,37 +425,33 @@ export default function PropertyManagementPage() {
         </table>
         <div className="px-4 py-3 border-t border-[#C9A36A]/10 bg-[#F5F0E8]/30">
           <p className="text-[11px] font-medium text-[#2B2B2B]/50">
-            Showing {filtered.length} of {properties.length} properties
+            Showing {filtered.length} of {packs.length} packages
           </p>
         </div>
       </div>
 
+      {/* Add Modal */}
       {modal === "add" && (
-        <Modal title="Add New Property" onClose={() => setModal(null)}>
-          <PropertyForm
+        <Modal title="Add New Package" onClose={() => setModal(null)}>
+          <PackForm
             initial={EMPTY}
             onSubmit={handleAdd}
             onCancel={() => setModal(null)}
-            submitLabel="Add Property"
+            submitLabel="Add Package"
           />
         </Modal>
       )}
+
+      {/* Edit Modal */}
       {modal === "edit" && selected && (
-        <Modal title="Edit Property" onClose={() => setModal(null)}>
-          <PropertyForm
+        <Modal title="Edit Package" onClose={() => setModal(null)}>
+          <PackForm
             initial={{
-              name: selected.name,
-              tower: selected.tower,
-              floor: selected.floor,
-              type: selected.type,
-              capacity: selected.capacity,
-              price: selected.price,
-              status: selected.status,
-              owner: selected.owner,
-              image: selected.image,
+              pack_name: selected.pack_name,
+              property_id: selected.property_id,
               description: selected.description || "",
-              longDescription: selected.longDescription || "",
-              features: selected.features || ["", "", "", ""],
+              floor_range: selected.floor_range || "",
+              price: selected.price,
             }}
             onSubmit={handleEdit}
             onCancel={() => setModal(null)}
@@ -679,48 +459,30 @@ export default function PropertyManagementPage() {
           />
         </Modal>
       )}
+
+      {/* View Modal */}
       {modal === "view" && selected && (
-        <Modal title="Property Detail" onClose={() => setModal(null)}>
-          {selected.image && (
-            <div className="relative w-full h-40 rounded-xl overflow-hidden mb-4">
-              <Image
-                src={selected.image}
-                alt={selected.name}
-                fill
-                className="object-cover"
-              />
-            </div>
-          )}
-          <div className="space-y-2.5">
-            {(
+        <Modal title="Package Detail" onClose={() => setModal(null)}>
+          <div className="space-y-3">
+            {[
+              ["Pack ID", `#${selected.pack_id}`],
+              ["Pack Name", selected.pack_name],
+              ["Tower", getTowerName(selected.property_id)],
+              ["Floor Range", `Floor ${selected.floor_range}`],
               [
-                ["Property Name", selected.name],
-                ["Tower", selected.tower],
-                ["Floor", selected.floor],
-                ["Type", selected.type],
-                ["Capacity", `${selected.capacity} pax`],
-                [
-                  "Monthly Price",
-                  `Rp ${selected.price.toLocaleString("id-ID")}`,
-                ],
-                ["Status", selected.status],
-                ["Owner", selected.owner],
-                ["Short Description", selected.description || "—"],
-                ["Full Description", selected.longDescription || "—"],
-                [
-                  "Features",
-                  (selected.features || []).filter(Boolean).join(", ") || "—",
-                ],
-              ] as [string, string][]
-            ).map(([label, value]) => (
+                "Price/Year",
+                `Rp ${Number(selected.price).toLocaleString("id-ID")}`,
+              ],
+              ["Description", selected.description || "-"],
+            ].map(([label, value]) => (
               <div
                 key={label}
-                className="flex justify-between py-2 border-b border-[#C9A36A]/10 last:border-0 gap-4"
+                className="flex justify-between py-2 border-b border-[#C9A36A]/10 last:border-0"
               >
-                <span className="text-xs font-semibold text-[#2B2B2B]/50 flex-shrink-0">
+                <span className="text-xs font-semibold text-[#2B2B2B]/50">
                   {label}
                 </span>
-                <span className="text-xs font-bold text-[#2B2B2B] text-right">
+                <span className="text-xs font-bold text-[#2B2B2B] text-right max-w-[60%]">
                   {value}
                 </span>
               </div>
@@ -736,14 +498,16 @@ export default function PropertyManagementPage() {
           </div>
         </Modal>
       )}
+
+      {/* Delete Modal */}
       {modal === "delete" && selected && (
-        <Modal title="Delete Property" onClose={() => setModal(null)}>
+        <Modal title="Delete Package" onClose={() => setModal(null)}>
           <div className="text-center py-4">
             <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
               <Trash2 size={24} className="text-red-500" />
             </div>
             <p className="text-sm font-bold text-[#2B2B2B] mb-1">
-              Delete &quot;{selected.name}&quot;?
+              Delete &quot;{selected.pack_name}&quot;?
             </p>
             <p className="text-xs text-[#2B2B2B]/50">
               This action cannot be undone.
@@ -765,6 +529,7 @@ export default function PropertyManagementPage() {
           </div>
         </Modal>
       )}
+
       {openMenu && (
         <div className="fixed inset-0 z-10" onClick={() => setOpenMenu(null)} />
       )}
