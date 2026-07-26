@@ -7,11 +7,18 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, CheckCircle2, Lock } from "lucide-react";
+import Script from "next/script";
 import BookingStepper from "@/components/booking/BookingStepper";
+import ThreeDSModal from "@/components/booking/ThreeDSModal";
 import { getWorkspaceBySlug } from "@/data/workspaces";
 import { formatIDR } from "@/lib/utils";
 import { notFound } from "next/navigation";
 import Image from "next/image";
+import { paymentService } from "@/services/payment";
+import type {
+  MidtransCardTokenSuccess,
+  MidtransCardTokenFailure,
+} from "@/types/midtrans";
 
 // Mapping slug → pack_id
 const SLUG_TO_PACK_ID: Record<string, number> = {
@@ -24,6 +31,12 @@ const SLUG_TO_PACK_ID: Record<string, number> = {
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+const MIDTRANS_CLIENT_KEY = process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY || "";
+const MIDTRANS_IS_PRODUCTION =
+  process.env.NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION === "true";
+const MIDTRANS_3DS_SCRIPT_URL = MIDTRANS_IS_PRODUCTION
+  ? "https://api.midtrans.com/v2/assets/js/midtrans-new-3ds.min.js"
+  : "https://api.sandbox.midtrans.com/v2/assets/js/midtrans-new-3ds.min.js";
 
 const schema = z.object({
   firstName: z.string().min(1, "Required"),
@@ -66,6 +79,17 @@ const PAYMENT_LOGOS = [
   { id: "bri", file: "bri.png" },
 ];
 
+// Human-readable messages for the final transaction_status after 3DS / charge.
+const STATUS_MESSAGES: Record<string, string> = {
+  pending:
+    "Your payment is still being processed. We'll notify you once it's confirmed.",
+  deny: "Your card was declined by the bank. Please try a different card.",
+  cancel: "The payment was cancelled.",
+  expire: "The payment session expired. Please try again.",
+  challenge:
+    "Your payment needs manual review by our team. We'll notify you once it's confirmed.",
+};
+
 export default function PaymentPage({
   params,
 }: {
@@ -87,6 +111,8 @@ export default function PaymentPage({
   const [processing, setProcessing] = useState(false);
   const [selectedCard, setSelectedCard] = useState<string>("");
   const [bookingError, setBookingError] = useState<string>("");
+  const [threeDsUrl, setThreeDsUrl] = useState<string | null>(null);
+  const [scriptReady, setScriptReady] = useState(false);
 
   useEffect(() => {
     const raw = sessionStorage.getItem(`rent-${slug}`);
@@ -120,9 +146,95 @@ export default function PaymentPage({
   const tax = yearly * workspace.taxRate;
   const total = yearly + tax;
 
-  const onSubmit = async () => {
+  const finishSuccess = () => {
+    sessionStorage.removeItem(`rent-${slug}`);
+    sessionStorage.removeItem(`confirm-${slug}`);
+    setThreeDsUrl(null);
+    setProcessing(false);
+    setDone(true);
+    setTimeout(() => router.push("/account"), 3000);
+  };
+
+  // Called after the 3DS iframe finishes (success/failure/pending). We
+  // re-check the definitive status from our backend (which itself
+  // re-verifies with Midtrans) rather than trusting the callback payload.
+  const finalizeAfterThreeDs = async (orderId: string) => {
+    try {
+      const statusResult = await paymentService.getStatus(orderId);
+      const status = statusResult.data.status;
+      setThreeDsUrl(null);
+      if (status === "paid") {
+        finishSuccess();
+      } else {
+        setBookingError(
+          STATUS_MESSAGES[status] ||
+            `Payment status: ${status}. Please check your account for updates.`,
+        );
+        setProcessing(false);
+      }
+    } catch (err) {
+      console.error(err);
+      setThreeDsUrl(null);
+      setBookingError(
+        "Could not confirm payment status. Please check your account before retrying.",
+      );
+      setProcessing(false);
+    }
+  };
+
+  const chargeWithToken = async (bookingId: number, tokenId: string) => {
+    try {
+      const chargeResult = await paymentService.chargeCard(bookingId, tokenId);
+      const { transaction_status, redirect_url, payment } = chargeResult.data;
+
+      if (redirect_url) {
+        // Card requires 3DS authentication - open it and wait for the result.
+        if (!window.MidtransNew3ds) {
+          setBookingError(
+            "Payment verification library failed to load. Please refresh and try again.",
+          );
+          setProcessing(false);
+          return;
+        }
+        window.MidtransNew3ds.authenticate(redirect_url, {
+          performAuthentication: (url) => setThreeDsUrl(url),
+          onSuccess: () => finalizeAfterThreeDs(payment.order_id),
+          onFailure: () => finalizeAfterThreeDs(payment.order_id),
+          onPending: () => finalizeAfterThreeDs(payment.order_id),
+        });
+        return;
+      }
+
+      if (transaction_status === "capture" || transaction_status === "settlement") {
+        finishSuccess();
+        return;
+      }
+
+      setBookingError(
+        STATUS_MESSAGES[transaction_status] ||
+          `Payment status: ${transaction_status}. Please check your account for updates.`,
+      );
+      setProcessing(false);
+    } catch (err) {
+      console.error(err);
+      setBookingError(
+        err instanceof Error ? err.message : "Failed to process payment.",
+      );
+      setProcessing(false);
+    }
+  };
+
+  const onSubmit = async (formData: Form) => {
     setProcessing(true);
     setBookingError("");
+
+    if (!scriptReady || !window.MidtransNew3ds) {
+      setBookingError(
+        "Payment library is still loading. Please wait a moment and try again.",
+      );
+      setProcessing(false);
+      return;
+    }
 
     try {
       const token = localStorage.getItem("token");
@@ -138,7 +250,8 @@ export default function PaymentPage({
         return;
       }
 
-      // POST /api/bookings — hanya setelah payment form valid
+      // 1) Create the booking first (status: pending) - only the payment
+      // step below turns it into "confirmed".
       const res = await fetch(`${API_URL}/api/bookings`, {
         method: "POST",
         headers: {
@@ -163,13 +276,32 @@ export default function PaymentPage({
         return;
       }
 
-      // Clear sessionStorage setelah booking berhasil
-      sessionStorage.removeItem(`rent-${slug}`);
-      sessionStorage.removeItem(`confirm-${slug}`);
+      const bookingId: number = result.data.booking_id;
 
-      setProcessing(false);
-      setDone(true);
-      setTimeout(() => router.push("/account"), 3000);
+      // 2) Tokenize the card client-side. Raw card data never touches our
+      // backend - only the resulting token_id does.
+      const [expMonth, expYearShort] = formData.expiryDate.split("/");
+
+      window.MidtransNew3ds.getCardToken(
+        {
+          card_number: formData.cardNumber.replace(/\s/g, ""),
+          card_exp_month: expMonth,
+          card_exp_year: `20${expYearShort}`,
+          card_cvv: formData.cvv,
+        },
+        {
+          onSuccess: (tokenResponse: MidtransCardTokenSuccess) => {
+            chargeWithToken(bookingId, tokenResponse.token_id);
+          },
+          onFailure: (failure: MidtransCardTokenFailure) => {
+            setBookingError(
+              failure.status_message ||
+                "Failed to validate card details. Please check and try again.",
+            );
+            setProcessing(false);
+          },
+        },
+      );
     } catch (err) {
       console.error(err);
       setBookingError("Cannot connect to server. Please try again.");
@@ -179,6 +311,13 @@ export default function PaymentPage({
 
   return (
     <div className="min-h-screen bg-white">
+      <Script
+        src={MIDTRANS_3DS_SCRIPT_URL}
+        data-client-key={MIDTRANS_CLIENT_KEY}
+        strategy="afterInteractive"
+        onLoad={() => setScriptReady(true)}
+      />
+
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
         <button
           onClick={() => router.back()}
@@ -348,7 +487,8 @@ export default function PaymentPage({
               </div>
 
               <div className="flex items-center gap-1.5 mt-3 text-[11px] text-gray-400">
-                <Lock size={11} /> Secured with 256-bit SSL encryption
+                <Lock size={11} /> Secured by Midtrans - your card details never
+                touch our servers
               </div>
 
               {/* Booking error */}
@@ -448,6 +588,9 @@ export default function PaymentPage({
           </div>
         </div>
       </div>
+
+      {/* 3DS authentication modal */}
+      <ThreeDSModal url={threeDsUrl} onClose={() => setThreeDsUrl(null)} />
 
       {/* Success overlay */}
       <AnimatePresence>
