@@ -50,4 +50,37 @@ VALUES
     (6, 'Wowi Executive Pack', 2, 'Executive Suite - Wowi Tower',    '19-25', 1000000000.00)
 ON CONFLICT (pack_id) DO NOTHING;
 
+ALTER TABLE Payments
+ADD COLUMN IF NOT EXISTS Order_id VARCHAR(100) UNIQUE;
+-- Order_id = the order_id we send to Midtrans (unique per charge attempt).
+-- Transaction_reference (already existed) is used to store Midtrans's transaction_id.
+
+ALTER TABLE Payments
+ADD COLUMN IF NOT EXISTS Midtrans_transaction_id VARCHAR(100);
+
+ALTER TABLE Payments
+ADD COLUMN IF NOT EXISTS Fraud_status VARCHAR(50);
+
+ALTER TABLE Payments
+ADD COLUMN IF NOT EXISTS Card_type VARCHAR(50);
+
+ALTER TABLE Payments
+ADD COLUMN IF NOT EXISTS Masked_card VARCHAR(30);
+
+ALTER TABLE Payments
+ADD COLUMN IF NOT EXISTS Bank VARCHAR(50);
+
+ALTER TABLE Payments
+ADD COLUMN IF NOT EXISTS Redirect_url TEXT;
+-- Used for 3DS authentication redirect (card payments that require challenge).
+
+ALTER TABLE Payments
+ADD COLUMN IF NOT EXISTS Raw_response JSONB;
+-- Stores the full latest Midtrans response for auditing/debugging.
+
+CREATE INDEX IF NOT EXISTS idx_payments_order_id ON Payments (Order_id);
+CREATE INDEX IF NOT EXISTS idx_payments_booking_id ON Payments (Booking_id);
+
+COMMIT;
+
 COMMIT;

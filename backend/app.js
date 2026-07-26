@@ -14,7 +14,7 @@ const floorPackRoutes = require("./src/routes/floorpacks.routes");
 // const photoRoutes = require('./src/routes/photos.routes');
 const amenityRoutes = require("./src/routes/amenities.routes");
 const bookingRoutes = require("./src/routes/bookings.routes");
-// const paymentRoutes = require('./src/routes/payments.routes');
+const paymentRoutes = require("./src/routes/payments.routes");
 const notificationRoutes = require("./src/routes/notifications.routes");
 
 const app = express();
@@ -44,7 +44,7 @@ app.use("/api/floor-packs", floorPackRoutes);
 // app.use("/api/photos", photoRoutes);
 app.use("/api/amenities", amenityRoutes);
 app.use("/api/bookings", bookingRoutes);
-// app.use("/api/payments", paymentRoutes);
+app.use("/api/payments", paymentRoutes);
 app.use("/api/notifications", notificationRoutes);
 
 app.get("/", (req, res) => {
