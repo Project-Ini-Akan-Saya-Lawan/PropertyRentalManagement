@@ -173,7 +173,7 @@ export default function PaymentPage({
         setProcessing(false);
       }
     } catch (err) {
-      console.error(err);
+      console.warn("finalizeAfterThreeDs failed:", err instanceof Error ? err.message : err);
       setThreeDsUrl(null);
       setBookingError(
         "Could not confirm payment status. Please check your account before retrying.",
@@ -216,7 +216,7 @@ export default function PaymentPage({
       );
       setProcessing(false);
     } catch (err) {
-      console.error(err);
+      console.warn("chargeWithToken failed:", err instanceof Error ? err.message : err);
       setBookingError(
         err instanceof Error ? err.message : "Failed to process payment.",
       );
@@ -303,8 +303,17 @@ export default function PaymentPage({
         },
       );
     } catch (err) {
-      console.error(err);
-      setBookingError("Cannot connect to server. Please try again.");
+      // NOTE: using console.warn (not console.error) here on purpose —
+      // Next's dev overlay intercepts console.error and can throw its own
+      // secondary "Cannot read properties of null (reading 'getAttribute')"
+      // error while trying to report certain error shapes, which hides the
+      // real message. console.warn bypasses that interceptor.
+      console.warn("onSubmit failed:", err instanceof Error ? err.message : err);
+      setBookingError(
+        err instanceof Error
+          ? `Payment failed: ${err.message}`
+          : "Cannot connect to server. Please try again.",
+      );
       setProcessing(false);
     }
   };
