@@ -51,6 +51,18 @@ const TAG_STYLE: Record<string, string> = {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
+// Detect notification type from title
+function detectType(title: string): Notification["type"] {
+  const t = title.toLowerCase();
+  if (t.includes("booking") || t.includes("rent")) return "booking";
+  if (t.includes("payment") || t.includes("pay") || t.includes("invoice"))
+    return "payment";
+  if (t.includes("property") || t.includes("pack")) return "property";
+  if (t.includes("user") || t.includes("registration") || t.includes("account"))
+    return "user";
+  return "booking";
+}
+
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [selected, setSelected] = useState<Notification | null>(null);
@@ -75,9 +87,12 @@ export default function NotificationsPage() {
               created_at: string;
             }) => ({
               id: String(n.notifications_id),
-              type: "booking" as const,
+              type: detectType(n.title),
               subject: n.title,
-              preview: n.message.slice(0, 60) + "...",
+              preview:
+                n.message.length > 60
+                  ? n.message.slice(0, 60) + "..."
+                  : n.message,
               body: n.message,
               from: "Rupiah Building System",
               fromEmail: "system@rupiahbuilding.com",
@@ -99,23 +114,35 @@ export default function NotificationsPage() {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
     );
-    // TODO: PATCH /api/notifications/:id/read
+    const token = localStorage.getItem("token");
+    fetch(`${API_URL}/api/notifications/${id}/read`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(console.error);
   };
 
   const markAllRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    // TODO: PATCH /api/notifications/read-all
+    const token = localStorage.getItem("token");
+    fetch(`${API_URL}/api/notifications/read-all`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(console.error);
   };
 
   const deleteNotif = (id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     if (selected?.id === id) setSelected(null);
-    // TODO: DELETE /api/notifications/:id
+    const token = localStorage.getItem("token");
+    fetch(`${API_URL}/api/notifications/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(console.error);
   };
 
   const handleSelect = (n: Notification) => {
     setSelected(n);
-    markRead(n.id);
+    if (!n.read) markRead(n.id);
   };
 
   const filtered = notifications.filter((n) => {
@@ -185,6 +212,11 @@ export default function NotificationsPage() {
                   }`}
                 >
                   {f}
+                  {f === "Unread" && unreadCount > 0 && (
+                    <span className="ml-1 bg-[#C9A36A] text-white text-[8px] px-1 rounded-full">
+                      {unreadCount}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -245,6 +277,14 @@ export default function NotificationsPage() {
               <div className="px-6 py-4 border-b border-[#C9A36A]/30 flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
+                    <div
+                      className={`w-6 h-6 rounded-full ${TYPE_BG[selected.type]} flex items-center justify-center`}
+                    >
+                      {TYPE_ICON[selected.type]}
+                    </div>
+                    <span className="text-[10px] font-bold text-[#2B2B2B]/50 uppercase">
+                      {selected.type}
+                    </span>
                     {selected.tag && (
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${TAG_STYLE[selected.tag] || "bg-gray-100 text-gray-600"}`}

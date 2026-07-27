@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import {
   Search,
@@ -21,7 +20,7 @@ interface Booking {
   tenantInitials: string;
   property: string;
   period: string;
-  status: "Approved" | "Pending" | "Cancelled" | "Active";
+  status: "Approved" | "Pending" | "Cancelled";
   total: string;
   rawStatus: string;
 }
@@ -38,12 +37,6 @@ interface NextCheckIn {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
 const STATUS_CONFIG = {
-  Active: {
-    bg: "bg-blue-50",
-    text: "text-blue-700",
-    border: "border-blue-200",
-    dot: "bg-blue-500",
-  },
   Approved: {
     bg: "bg-green-50",
     text: "text-green-700",
@@ -109,8 +102,7 @@ function StatusBadge({ status }: { status: Booking["status"] }) {
 }
 
 function mapStatus(s: string): Booking["status"] {
-  if (s === "confirmed") return "Approved";
-  if (s === "completed") return "Active";
+  if (s === "confirmed" || s === "completed") return "Approved";
   if (s === "cancelled") return "Cancelled";
   return "Pending";
 }
@@ -173,15 +165,12 @@ export default function BookingManagementPage() {
 
   const updateStatus = async (newStatus: Booking["status"]) => {
     if (!selected) return;
-
     const token = localStorage.getItem("token");
     const statusMap: Record<string, string> = {
       Approved: "confirmed",
       Pending: "pending",
       Cancelled: "cancelled",
-      Active: "completed",
     };
-
     try {
       await fetch(`${API_URL}/api/bookings/${selected.id}/status`, {
         method: "PUT",
@@ -194,14 +183,12 @@ export default function BookingManagementPage() {
       fetchBookings();
     } catch (err) {
       console.error("Failed to update status:", err);
-      // Update locally as fallback
       setBookings((prev) =>
         prev.map((b) =>
           b.id === selected.id ? { ...b, status: newStatus } : b,
         ),
       );
     }
-
     setModal(null);
     setSelected(null);
     setActionNote("");
@@ -233,13 +220,6 @@ export default function BookingManagementPage() {
       icon: CheckCircle,
       bg: "bg-green-50",
       color: "text-green-600",
-    },
-    {
-      label: "Active Tenancies",
-      value: bookings.filter((b) => b.status === "Active").length,
-      icon: Calendar,
-      bg: "bg-blue-50",
-      color: "text-blue-600",
     },
     {
       label: "Cancelled",
@@ -285,7 +265,7 @@ export default function BookingManagementPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-3 gap-3 mb-6">
         {stats.map((s) => {
           const Icon = s.icon;
           return (
@@ -321,20 +301,18 @@ export default function BookingManagementPage() {
               </h2>
               <div className="flex items-center gap-2">
                 <div className="flex gap-1">
-                  {["All", "Approved", "Pending", "Active", "Cancelled"].map(
-                    (f) => (
-                      <button
-                        key={f}
-                        onClick={() => {
-                          setFilter(f);
-                          setPage(1);
-                        }}
-                        className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-colors ${filter === f ? "bg-[#C9A36A] text-white" : "text-[#2B2B2B]/50 hover:bg-[#C9A36A]/10"}`}
-                      >
-                        {f}
-                      </button>
-                    ),
-                  )}
+                  {["All", "Approved", "Pending", "Cancelled"].map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => {
+                        setFilter(f);
+                        setPage(1);
+                      }}
+                      className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-colors ${filter === f ? "bg-[#C9A36A] text-white" : "text-[#2B2B2B]/50 hover:bg-[#C9A36A]/10"}`}
+                    >
+                      {f}
+                    </button>
+                  ))}
                 </div>
                 <button className="p-1.5 border-2 border-[#C9A36A]/30 rounded-lg hover:border-[#C9A36A] transition-colors">
                   <Download size={13} className="text-[#C9A36A]" />
@@ -429,7 +407,7 @@ export default function BookingManagementPage() {
                           >
                             <Eye size={13} className="text-[#C9A36A]" />
                           </button>
-                          {b.status !== "Approved" && b.status !== "Active" && (
+                          {b.status !== "Approved" && (
                             <button
                               onClick={() => {
                                 setSelected(b);
@@ -591,7 +569,7 @@ export default function BookingManagementPage() {
             ))}
           </div>
           <div className="flex gap-2">
-            {selected.status !== "Approved" && selected.status !== "Active" && (
+            {selected.status !== "Approved" && (
               <button
                 onClick={() => updateStatus("Approved")}
                 className="flex-1 flex items-center justify-center gap-1.5 bg-green-500 hover:bg-green-600 text-white text-xs font-bold py-2 rounded-lg transition-colors"

@@ -6,26 +6,18 @@ import {
   UserPlus,
   TrendingUp,
   Home,
-  Users,
   Users2,
   Clock,
   FileText,
-  Calendar,
 } from "lucide-react";
 
 interface DashboardStats {
   totalProperties: number | null;
-  totalOwners: number | null;
   totalTenants: number | null;
   monthlyRevenue: string | null;
   occupancyRate: string | null;
   pendingApprovals: number | null;
 }
-
-const MONTHLY_DATA = [25, 40, 33, 52, 60, 78];
-const MONTHLY_LABELS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN"];
-const QUARTERLY_DATA = [45, 62, 55, 80];
-const QUARTERLY_LABELS = ["Q1", "Q2", "Q3", "Q4"];
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
@@ -59,7 +51,6 @@ export default function AdminDashboardPage() {
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats>({
     totalProperties: null,
-    totalOwners: null,
     totalTenants: null,
     monthlyRevenue: null,
     occupancyRate: null,
@@ -71,6 +62,8 @@ export default function AdminDashboardPage() {
   const [recentBookings, setRecentBookings] = useState<
     { title: string; sub: string; time: string }[]
   >([]);
+  const [totalPacks, setTotalPacks] = useState<number>(0);
+  const [confirmedPacks, setConfirmedPacks] = useState<number>(0);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -78,18 +71,17 @@ export default function AdminDashboardPage() {
       ? { Authorization: `Bearer ${token}` }
       : {};
 
-    // Fetch total properties
+    // Fetch total properties (towers)
     fetch(`${API_URL}/api/properties`)
       .then((r) => r.json())
       .then((result) => {
-        if (result.data) {
+        if (result.data)
           setStats((prev) => ({
             ...prev,
             totalProperties: result.data.length,
           }));
-        }
       })
-      .catch((err) => console.error("Failed to fetch properties:", err));
+      .catch(console.error);
 
     // Fetch total tenants
     fetch(`${API_URL}/api/users`, { headers })
@@ -102,26 +94,37 @@ export default function AdminDashboardPage() {
           setStats((prev) => ({ ...prev, totalTenants: tenants.length }));
         }
       })
-      .catch((err) => console.error("Failed to fetch users:", err));
+      .catch(console.error);
 
-    // Fetch all bookings → pending approvals + recent activity
+    // Fetch floor packs → total units for occupancy
+    fetch(`${API_URL}/api/floor-packs`)
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) setTotalPacks(result.data.length);
+      })
+      .catch(console.error);
+
+    // Fetch all bookings → pending + recent activity + occupancy
     fetch(`${API_URL}/api/bookings/all`, { headers })
       .then((r) => r.json())
       .then((result) => {
         if (result.data) {
-          const pending = result.data.filter(
+          const bookings = result.data;
+          const pending = bookings.filter(
             (b: { status: string }) => b.status === "pending",
           ).length;
+          const confirmed = bookings.filter(
+            (b: { status: string }) => b.status === "confirmed",
+          ).length;
+          setConfirmedPacks(confirmed);
           setStats((prev) => ({ ...prev, pendingApprovals: pending }));
 
-          // Recent bookings for activity feed
-          const recent = result.data
+          const recent = bookings
             .slice(0, 4)
             .map(
               (b: {
                 username: string;
                 booking_id: number;
-                status: string;
                 booking_date: string;
               }) => ({
                 title: "New Booking Received",
@@ -132,8 +135,35 @@ export default function AdminDashboardPage() {
           setRecentBookings(recent);
         }
       })
-      .catch((err) => console.error("Failed to fetch bookings:", err));
+      .catch(console.error);
   }, []);
+
+  // Hitung occupancy rate
+  useEffect(() => {
+    if (totalPacks > 0) {
+      const rate = Math.round((confirmedPacks / totalPacks) * 100);
+      setStats((prev) => ({ ...prev, occupancyRate: `${rate}%` }));
+    }
+  }, [totalPacks, confirmedPacks]);
+
+  // Chart data — placeholder sampai payment data tersedia
+  const MONTHLY_DATA = [25, 40, 33, 52, 60, 78, 45, 62, 38, 55, 70, 85];
+  const MONTHLY_LABELS = [
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DEC",
+  ];
+  const QUARTERLY_DATA = [45, 62, 55, 80];
+  const QUARTERLY_LABELS = ["Q1", "Q2", "Q3", "Q4"];
 
   const chartData = revenueTab === "monthly" ? MONTHLY_DATA : QUARTERLY_DATA;
   const chartLabels =
@@ -156,17 +186,12 @@ export default function AdminDashboardPage() {
         </p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+      {/* Stats — 5 cards, no Total Owners */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         <StatCard
           label="Total Properties"
           value={stats.totalProperties}
           icon={<Home size={15} />}
-        />
-        <StatCard
-          label="Total Owners"
-          value={stats.totalOwners}
-          icon={<Users size={15} />}
         />
         <StatCard
           label="Total Tenants"
@@ -240,39 +265,21 @@ export default function AdminDashboardPage() {
             ))}
           </div>
           <div className="mt-3 pt-3 border-t border-[#C9A36A]/20 flex items-center gap-3">
-            {revenueTab === "monthly" ? (
-              <>
-                <div className="flex gap-3 text-[10px] font-semibold text-[#2B2B2B]/60">
-                  <span className="flex items-center gap-1">
-                    <span className="w-3 h-2 rounded-sm bg-[#C9A36A] inline-block" />{" "}
-                    Current Month
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-3 h-2 rounded-sm bg-[#E8D5B0] inline-block" />{" "}
-                    Previous Months
-                  </span>
-                </div>
-                <span className="ml-auto text-[10px] font-bold text-green-600">
-                  ↑ Trending up
-                </span>
-              </>
-            ) : (
-              <>
-                <div className="flex gap-3 text-[10px] font-semibold text-[#2B2B2B]/60">
-                  <span className="flex items-center gap-1">
-                    <span className="w-3 h-2 rounded-sm bg-[#C9A36A] inline-block" />{" "}
-                    Q4 (Latest)
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-3 h-2 rounded-sm bg-[#E8D5B0] inline-block" />{" "}
-                    Prior Quarters
-                  </span>
-                </div>
-                <span className="ml-auto text-[10px] font-bold text-[#C9A36A]">
-                  Full Year View
-                </span>
-              </>
-            )}
+            <div className="flex gap-3 text-[10px] font-semibold text-[#2B2B2B]/60">
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-2 rounded-sm bg-[#C9A36A] inline-block" />{" "}
+                {revenueTab === "monthly" ? "Current Month" : "Q4 (Latest)"}
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-2 rounded-sm bg-[#E8D5B0] inline-block" />{" "}
+                {revenueTab === "monthly"
+                  ? "Previous Months"
+                  : "Prior Quarters"}
+              </span>
+            </div>
+            <span className="ml-auto text-[10px] font-medium text-[#2B2B2B]/30">
+              Waiting for payment data
+            </span>
           </div>
         </div>
 
@@ -352,15 +359,37 @@ export default function AdminDashboardPage() {
             Capacity Utilization
           </p>
           <p className="text-[10px] font-medium text-[#2B2B2B]/50 mb-4">
-            Across all luxury units
+            Confirmed bookings / total packs
           </p>
-          <div className="w-20 h-20 rounded-full border-8 border-[#C9A36A] flex items-center justify-center">
-            <span className="text-lg font-bold text-[#2B2B2B]">
-              {stats.occupancyRate ?? "—"}
-            </span>
+          <div className="relative w-24 h-24">
+            <svg viewBox="0 0 36 36" className="w-24 h-24 -rotate-90">
+              <circle
+                cx="18"
+                cy="18"
+                r="15.9"
+                fill="none"
+                stroke="#E8D5B0"
+                strokeWidth="3"
+              />
+              <circle
+                cx="18"
+                cy="18"
+                r="15.9"
+                fill="none"
+                stroke="#C9A36A"
+                strokeWidth="3"
+                strokeDasharray={`${stats.occupancyRate ? parseInt(stats.occupancyRate) : 0} 100`}
+                strokeLinecap="round"
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-lg font-bold text-[#2B2B2B]">
+                {stats.occupancyRate ?? "—"}
+              </span>
+            </div>
           </div>
-          <p className="text-[10px] font-medium text-[#2B2B2B]/30 mt-3">
-            API data pending
+          <p className="text-[10px] text-[#2B2B2B]/40 mt-3">
+            {confirmedPacks} confirmed / {totalPacks} total packs
           </p>
         </div>
 
