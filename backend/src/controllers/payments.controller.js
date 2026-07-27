@@ -107,8 +107,12 @@ const chargeCardPayment = async (req, res) => {
       midtransResponse = await coreApi.charge(chargeParams);
     } catch (midtransError) {
       await client.query("ROLLBACK");
-      console.error("Midtrans charge error:", midtransError);
+      console.error("Midtrans charge error:", midtransError?.ApiResponse || midtransError);
+      const validationMessages = midtransError?.ApiResponse?.validation_messages;
       const apiMessage =
+        (Array.isArray(validationMessages) && validationMessages.length > 0
+          ? validationMessages.join("; ")
+          : null) ||
         midtransError?.ApiResponse?.status_message ||
         midtransError.message ||
         "Payment gateway error.";

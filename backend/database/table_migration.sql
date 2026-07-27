@@ -82,5 +82,3 @@ CREATE INDEX IF NOT EXISTS idx_payments_order_id ON Payments (Order_id);
 CREATE INDEX IF NOT EXISTS idx_payments_booking_id ON Payments (Booking_id);
 
 COMMIT;
-
-COMMIT;

@@ -224,6 +224,25 @@ export default function PaymentPage({
     }
   };
 
+  // Releases a booking that was created but never got paid (e.g. card
+  // tokenization failed or crashed) so the floor doesn't stay stuck as
+  // "pending" forever and block other bookings for that period.
+  const cancelBooking = async (bookingId: number, token: string) => {
+    try {
+      await fetch(`${API_URL}/api/bookings/${bookingId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (cleanupErr) {
+      // Best-effort cleanup - if this itself fails, don't block the user
+      // from seeing the original error, just log it.
+      console.warn(
+        "Failed to auto-cancel unpaid booking:",
+        cleanupErr instanceof Error ? cleanupErr.message : cleanupErr,
+      );
+    }
+  };
+
   const onSubmit = async (formData: Form) => {
     setProcessing(true);
     setBookingError("");
@@ -236,8 +255,11 @@ export default function PaymentPage({
       return;
     }
 
+    let bookingId: number | null = null;
+    let token: string | null = null;
+
     try {
-      const token = localStorage.getItem("token");
+      token = localStorage.getItem("token");
       const pack_id = SLUG_TO_PACK_ID[slug];
       const floorNum = parseInt((rentData.floor || "").replace("Floor ", ""));
       const months = years * 12;
@@ -276,7 +298,7 @@ export default function PaymentPage({
         return;
       }
 
-      const bookingId: number = result.data.booking_id;
+      bookingId = result.data.booking_id;
 
       // 2) Tokenize the card client-side. Raw card data never touches our
       // backend - only the resulting token_id does.
@@ -291,9 +313,12 @@ export default function PaymentPage({
         },
         {
           onSuccess: (tokenResponse: MidtransCardTokenSuccess) => {
-            chargeWithToken(bookingId, tokenResponse.token_id);
+            chargeWithToken(bookingId as number, tokenResponse.token_id);
           },
-          onFailure: (failure: MidtransCardTokenFailure) => {
+          onFailure: async (failure: MidtransCardTokenFailure) => {
+            // Tokenization definitively failed - no charge was attempted,
+            // so it's safe to release the floor immediately.
+            await cancelBooking(bookingId as number, token as string);
             setBookingError(
               failure.status_message ||
                 "Failed to validate card details. Please check and try again.",
@@ -303,15 +328,24 @@ export default function PaymentPage({
         },
       );
     } catch (err) {
-      // NOTE: using console.warn (not console.error) here on purpose —
+      // NOTE: using console.warn (not console.error) here on purpose -
       // Next's dev overlay intercepts console.error and can throw its own
       // secondary "Cannot read properties of null (reading 'getAttribute')"
       // error while trying to report certain error shapes, which hides the
       // real message. console.warn bypasses that interceptor.
       console.warn("onSubmit failed:", err instanceof Error ? err.message : err);
+
+      // If the booking was already created but something threw before a
+      // charge was ever attempted (e.g. getCardToken crashing, a network
+      // error), release it - otherwise the floor stays stuck as "pending"
+      // forever even though no payment was ever made.
+      if (bookingId && token) {
+        await cancelBooking(bookingId, token);
+      }
+
       setBookingError(
         err instanceof Error
-          ? `Payment failed: ${err.message}`
+          ? `Payment failed: ${err.message}${bookingId ? " (your booking attempt was cancelled, please try again)" : ""}`
           : "Cannot connect to server. Please try again.",
       );
       setProcessing(false);
@@ -321,7 +355,9 @@ export default function PaymentPage({
   return (
     <div className="min-h-screen bg-white">
       <Script
+        id="midtrans-script"
         src={MIDTRANS_3DS_SCRIPT_URL}
+        data-environment={MIDTRANS_IS_PRODUCTION ? "production" : "sandbox"}
         data-client-key={MIDTRANS_CLIENT_KEY}
         strategy="afterInteractive"
         onLoad={() => setScriptReady(true)}
