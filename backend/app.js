@@ -12,6 +12,7 @@ const amenityRoutes = require("./src/routes/amenities.routes");
 const bookingRoutes = require("./src/routes/bookings.routes");
 const paymentRoutes = require("./src/routes/payments.routes");
 const notificationRoutes = require("./src/routes/notifications.routes");
+const { startExpireBookingsJob } = require("./src/jobs/expireBookings.job");
 
 const app = express();
 
@@ -42,4 +43,5 @@ app.get("/", (req, res) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Server berjalan di http://localhost:${PORT}`);
+  startExpireBookingsJob();
 });

@@ -115,3 +115,24 @@ ALTER TABLE Payments
 DROP COLUMN IF EXISTS Redirect_url;
 
 COMMIT;
+
+-- Migration: booking expiry.
+-- A 'pending' booking (created but never paid) currently blocks the floor
+-- forever because createBooking() only excludes 'pending'/'confirmed' when
+-- checking for conflicts. Expires_at gives every pending booking a deadline;
+-- a background job flips it to 'expired' once the deadline passes, freeing
+-- the floor for other tenants.
+BEGIN;
+
+ALTER TABLE Bookings
+ADD COLUMN IF NOT EXISTS Expires_at TIMESTAMP;
+-- Deadline for the booking to be paid while status = 'pending'.
+-- Set at creation time (Booking_date + BOOKING_EXPIRY_HOURS). NULL for
+-- bookings that are already confirmed/cancelled/completed.
+
+CREATE INDEX IF NOT EXISTS idx_bookings_status_expires_at
+ON Bookings (status, expires_at)
+WHERE deleted_at IS NULL;
+-- Speeds up the expiry job's scan for stale pending bookings.
+
+COMMIT;

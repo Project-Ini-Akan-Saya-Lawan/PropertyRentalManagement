@@ -6,6 +6,12 @@ const adminAuth = require("../middlewares/adminAuth");
 const bookingsController = require("../controllers/bookings.controller");
 
 router.get("/all", authenticateJWT, adminAuth, bookingsController.getAllBookings);
+router.post(
+  "/expire-check",
+  authenticateJWT,
+  adminAuth,
+  bookingsController.runBookingExpiryCheck,
+);
 router.get("/", authenticateJWT, bookingsController.getMyBookings);
 router.get("/:id", authenticateJWT, bookingsController.getBookingById);
 router.post("/", authenticateJWT, bookingsController.createBooking);
