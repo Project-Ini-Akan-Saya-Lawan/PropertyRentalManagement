@@ -8,6 +8,45 @@ const VA_BANKS = ["bca", "bni", "bri", "permata"];
 const ECHANNEL_BANKS = ["mandiri"];
 const SUPPORTED_BANKS = [...VA_BANKS, ...ECHANNEL_BANKS];
 
+// Applies a Midtrans-driven booking status change, but refuses to silently
+// resurrect a booking our expiry job already closed out. A late payment
+// notification can arrive after a booking has expired and its floor may
+// already be booked by someone else - overwriting status back to
+// 'confirmed' in that case would create a double booking. When that
+// happens we keep the booking 'expired' and flag it for manual review
+// instead of trusting Midtrans's timing.
+async function applyBookingStatusFromMidtrans(
+  dbClient,
+  bookingId,
+  bookingStatus,
+  paymentStatus,
+) {
+  const current = await dbClient.query(
+    `SELECT status, user_id FROM Bookings WHERE booking_id = $1`,
+    [bookingId],
+  );
+  if (current.rows.length === 0) return;
+
+  const currentStatus = current.rows[0].status;
+
+  if (currentStatus === "expired" && paymentStatus === "paid") {
+    await dbClient.query(
+      `INSERT INTO Notifications (user_id, title, message) VALUES ($1, $2, $3)`,
+      [
+        current.rows[0].user_id,
+        "Payment Received After Expiry",
+        `Booking #${bookingId} was paid but had already expired. Please contact support - a manual refund or reassignment may be needed.`,
+      ],
+    );
+    return; // leave status as 'expired', don't overwrite
+  }
+
+  await dbClient.query(`UPDATE Bookings SET status = $1 WHERE booking_id = $2`, [
+    bookingStatus,
+    bookingId,
+  ]);
+}
+
 const chargeBankTransferPayment = async (req, res) => {
   const userId = req.user.user_id;
   const { booking_id, bank } = req.body;
@@ -30,7 +69,7 @@ const chargeBankTransferPayment = async (req, res) => {
     await client.query("BEGIN");
 
     const bookingResult = await client.query(
-      `SELECT b.booking_id, b.user_id, b.total_price, b.status
+      `SELECT b.booking_id, b.user_id, b.total_price, b.status, b.expires_at
        FROM Bookings b
        WHERE b.booking_id = $1 AND b.user_id = $2 AND b.deleted_at IS NULL
        FOR UPDATE`,
@@ -90,6 +129,17 @@ const chargeBankTransferPayment = async (req, res) => {
       },
     ];
 
+    // Sync Midtrans's own VA/echannel expiry to our booking deadline instead
+    // of letting Midtrans use its account-level default (commonly 24h).
+    // Without this, the VA can stay "payable" on Midtrans's side well after
+    // our job has already expired the booking and freed the floor.
+    // Midtrans requires a minimum of 1 minute; we floor at 5 to leave the
+    // customer enough time to actually complete a transfer.
+    const minutesUntilBookingExpiry = booking.expires_at
+      ? Math.ceil((new Date(booking.expires_at).getTime() - Date.now()) / 60000)
+      : 24 * 60;
+    const customExpiryMinutes = Math.max(minutesUntilBookingExpiry, 5);
+
     const isEchannel = ECHANNEL_BANKS.includes(normalizedBank);
     const chargeParams = isEchannel
       ? {
@@ -101,6 +151,10 @@ const chargeBankTransferPayment = async (req, res) => {
           },
           customer_details: customerDetails,
           item_details: itemDetails,
+          custom_expiry: {
+            expiry_duration: customExpiryMinutes,
+            unit: "minute",
+          },
         }
       : {
           payment_type: "bank_transfer",
@@ -108,6 +162,10 @@ const chargeBankTransferPayment = async (req, res) => {
           bank_transfer: { bank: normalizedBank },
           customer_details: customerDetails,
           item_details: itemDetails,
+          custom_expiry: {
+            expiry_duration: customExpiryMinutes,
+            unit: "minute",
+          },
         };
 
     let midtransResponse;
@@ -262,10 +320,12 @@ const getPaymentStatus = async (req, res) => {
       ],
     );
 
-    await pool.query(`UPDATE Bookings SET status = $1 WHERE booking_id = $2`, [
-      bookingStatus,
+    await applyBookingStatusFromMidtrans(
+      pool,
       payment.booking_id,
-    ]);
+      bookingStatus,
+      paymentStatus,
+    );
 
     return res.status(200).json({ data: updated.rows[0] });
   } catch (error) {
@@ -314,26 +374,31 @@ const handleMidtransNotification = async (req, res) => {
       ],
     );
 
-    await pool.query(`UPDATE Bookings SET status = $1 WHERE booking_id = $2`, [
-      bookingStatus,
-      payment.booking_id,
-    ]);
+    const bookingBefore = await pool.query(
+      `SELECT user_id, status FROM Bookings WHERE booking_id = $1`,
+      [payment.booking_id],
+    );
 
-    if (paymentStatus === "paid") {
-      const bookingUser = await pool.query(
-        `SELECT user_id FROM Bookings WHERE booking_id = $1`,
-        [payment.booking_id],
+    await applyBookingStatusFromMidtrans(
+      pool,
+      payment.booking_id,
+      bookingStatus,
+      paymentStatus,
+    );
+
+    if (
+      paymentStatus === "paid" &&
+      bookingBefore.rows.length > 0 &&
+      bookingBefore.rows[0].status !== "expired"
+    ) {
+      await pool.query(
+        `INSERT INTO Notifications (user_id, title, message) VALUES ($1, $2, $3)`,
+        [
+          bookingBefore.rows[0].user_id,
+          "Payment Successful",
+          `Your payment for Booking #${payment.booking_id} has been received. Your booking is now confirmed.`,
+        ],
       );
-      if (bookingUser.rows.length > 0) {
-        await pool.query(
-          `INSERT INTO Notifications (user_id, title, message) VALUES ($1, $2, $3)`,
-          [
-            bookingUser.rows[0].user_id,
-            "Payment Successful",
-            `Your payment for Booking #${payment.booking_id} has been received. Your booking is now confirmed.`,
-          ],
-        );
-      }
     }
 
     return res.status(200).json({ message: "Notification processed." });
