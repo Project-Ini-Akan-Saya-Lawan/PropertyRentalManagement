@@ -1,7 +1,9 @@
 // services/payment.ts
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
-export interface ChargeCardResponse {
+export type BankCode = "bca" | "bni" | "bri" | "permata" | "mandiri";
+
+export interface ChargeBankTransferResponse {
   message: string;
   data: {
     payment: {
@@ -12,8 +14,11 @@ export interface ChargeCardResponse {
       [key: string]: unknown;
     };
     transaction_status: string;
-    fraud_status: string | null;
-    redirect_url: string | null;
+    bank: BankCode;
+    va_number: string | null;
+    biller_code: string | null;
+    bill_key: string | null;
+    expiry_time: string | null;
   };
 }
 
@@ -38,36 +43,35 @@ function authHeaders() {
 
 export const paymentService = {
   /**
-   * Charge a booking using a Midtrans card `token_id` obtained client-side
-   * via MidtransNew3ds.getCardToken(). Never send raw card data here -
-   * only the token.
+   * Create a Midtrans Core API bank transfer charge for a booking. Returns
+   * either a Virtual Account number (BCA/BNI/BRI/Permata) or a Mandiri
+   * biller_code/bill_key pair for the customer to pay into from their own
+   * banking app - no card or account credentials are ever collected here.
    */
-  async chargeCard(
+  async chargeBankTransfer(
     bookingId: number,
-    tokenId: string,
-    saveCard = false,
-  ): Promise<ChargeCardResponse> {
-    const res = await fetch(`${API}/api/payments/card/charge`, {
+    bank: BankCode,
+  ): Promise<ChargeBankTransferResponse> {
+    const res = await fetch(`${API}/api/payments/bank-transfer/charge`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({
         booking_id: bookingId,
-        token_id: tokenId,
-        save_card: saveCard,
+        bank,
       }),
     });
     const result = await res.json();
     if (!res.ok) {
-      throw new Error(result.message || "Failed to process card payment.");
+      throw new Error(result.message || "Failed to create bank transfer payment.");
     }
     return result;
   },
 
   /**
-   * Re-check a transaction's latest status directly from the backend
-   * (which itself re-verifies with Midtrans). Used right after the 3DS
-   * authentication popup closes, since that's the source of truth rather
-   * than trusting the client-side callback response alone.
+   * Re-check a transaction's latest status directly from the backend (which
+   * itself re-verifies with Midtrans). Used to poll while waiting for the
+   * customer to complete the transfer, since that's the source of truth
+   * rather than trusting the async webhook to have already arrived.
    */
   async getStatus(orderId: string): Promise<PaymentStatusResponse> {
     const res = await fetch(`${API}/api/payments/status/${orderId}`, {

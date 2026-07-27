@@ -10,7 +10,11 @@ const paymentsController = require("../controllers/payments.controller");
 // through coreApi.transaction.notification().
 router.post("/notification", paymentsController.handleMidtransNotification);
 
-router.post("/card/charge", authenticateJWT, paymentsController.chargeCardPayment);
+router.post(
+  "/bank-transfer/charge",
+  authenticateJWT,
+  paymentsController.chargeBankTransferPayment,
+);
 router.get("/status/:order_id", authenticateJWT, paymentsController.getPaymentStatus);
 router.post(
   "/:order_id/cancel",

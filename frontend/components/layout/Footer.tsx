@@ -6,10 +6,7 @@ const MAPS_URL =
   "https://www.google.com/maps/search/?api=1&query=Jl.+Sekolah+Hijau+No.14+Simpangan+Cikarang+Utara+Bekasi";
 
 const payments = [
-  { id: "visa", src: "/payments/visa.png", alt: "Visa" },
   { id: "bca", src: "/payments/bca.png", alt: "BCA" },
-  { id: "jcb", src: "/payments/jcb.png", alt: "JCB" },
-  { id: "mastercard", src: "/payments/mastercard.png", alt: "Mastercard" },
   { id: "mandiri", src: "/payments/mandiri.png", alt: "Mandiri" },
   { id: "bri", src: "/payments/bri.png", alt: "BRI" },
 ];

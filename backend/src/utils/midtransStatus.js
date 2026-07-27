@@ -2,13 +2,13 @@
 // Maps a Midtrans Core API transaction response to our internal
 // Payments.Status / Bookings.Status values.
 //
-// Reference (Midtrans transaction_status for card payments):
-// - capture        -> only for credit_card; check fraud_status too
-// - settlement      -> payment settled
-// - pending         -> waiting for payment / 3DS challenge in progress
-// - deny            -> payment denied (bank/fraud rule)
-// - cancel          -> transaction canceled
-// - expire          -> payment expired
+// Reference (Midtrans transaction_status for bank_transfer/echannel payments):
+// - capture        -> not used by bank_transfer/echannel, kept for completeness
+// - settlement      -> the VA/bill was paid and funds settled
+// - pending         -> VA/bill generated, waiting for the customer to pay
+// - deny            -> payment denied (fraud rule)
+// - cancel          -> transaction canceled (e.g. admin cancel while pending)
+// - expire          -> the VA/bill expired before payment was made
 // - refund / partial_refund -> refunded
 
 function mapMidtransStatus(transaction_status, fraud_status) {

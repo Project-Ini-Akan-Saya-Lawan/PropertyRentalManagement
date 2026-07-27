@@ -5,23 +5,38 @@ const { mapMidtransStatus } = require("../utils/midtransStatus");
 
 const PAYABLE_BOOKING_STATUSES = ["pending"];
 
-/**
- * POST /api/payments/card/charge
- * Body: { booking_id, token_id, save_card? }
- *
- * `token_id` MUST be produced client-side (Midtrans.js / Snap.js `card_token` API)
- * using the MIDTRANS_CLIENT_KEY. Raw card numbers/CVV must never be sent to this
- * backend directly - that would be out of PCI-DSS scope and Midtrans's Core API
- * rejects raw card data from the server side anyway.
- */
-const chargeCardPayment = async (req, res) => {
-  const userId = req.user.user_id;
-  const { booking_id, token_id, save_card } = req.body;
+// Banks supported through Midtrans Core API's `bank_transfer` payment type
+// (each produces a Virtual Account number the customer transfers to).
+const VA_BANKS = ["bca", "bni", "bri", "permata"];
+// Mandiri Bill Payment uses a separate Core API payment type (`echannel`)
+// and returns a biller_code/bill_key pair instead of a va_number.
+const ECHANNEL_BANKS = ["mandiri"];
+const SUPPORTED_BANKS = [...VA_BANKS, ...ECHANNEL_BANKS];
 
-  if (!booking_id || !token_id) {
+/**
+ * POST /api/payments/bank-transfer/charge
+ * Body: { booking_id, bank }
+ *
+ * `bank` must be one of SUPPORTED_BANKS. No sensitive payment instrument data
+ * is ever collected from the client - Midtrans generates a Virtual Account
+ * (or, for Mandiri, a biller_code/bill_key pair) that the customer pays into
+ * from their own banking app; we just relay the booking amount.
+ */
+const chargeBankTransferPayment = async (req, res) => {
+  const userId = req.user.user_id;
+  const { booking_id, bank } = req.body;
+
+  if (!booking_id || !bank) {
     return res
       .status(400)
-      .json({ message: "booking_id and token_id are required." });
+      .json({ message: "booking_id and bank are required." });
+  }
+
+  const normalizedBank = String(bank).toLowerCase();
+  if (!SUPPORTED_BANKS.includes(normalizedBank)) {
+    return res.status(400).json({
+      message: `Unsupported bank '${bank}'. Supported banks: ${SUPPORTED_BANKS.join(", ")}.`,
+    });
   }
 
   const client = await pool.connect();
@@ -75,40 +90,64 @@ const chargeCardPayment = async (req, res) => {
     const orderId = `BOOKING-${booking_id}-${Date.now()}`;
     const [firstName, ...rest] = (user.username || "Customer").split(" ");
 
-    const chargeParams = {
-      payment_type: "credit_card",
-      transaction_details: {
-        order_id: orderId,
-        gross_amount: grossAmount,
-      },
-      credit_card: {
-        token_id,
-        authentication: true, // force 3DS when supported by the card/bank
-        save_card: Boolean(save_card),
-      },
-      customer_details: {
-        first_name: firstName,
-        last_name: rest.join(" ") || undefined,
-        email: user.email,
-        phone: user.phone_number || undefined,
-      },
-      item_details: [
-        {
-          id: `PACK-${booking_id}`,
-          price: grossAmount,
-          quantity: 1,
-          name: `Booking #${booking_id} payment`,
-        },
-      ],
+    const customerDetails = {
+      first_name: firstName,
+      last_name: rest.join(" ") || undefined,
+      email: user.email,
+      phone: user.phone_number || undefined,
     };
+    const itemDetails = [
+      {
+        id: `PACK-${booking_id}`,
+        price: grossAmount,
+        quantity: 1,
+        name: `Booking #${booking_id} payment`,
+      },
+    ];
+
+    const isEchannel = ECHANNEL_BANKS.includes(normalizedBank);
+
+    const chargeParams = isEchannel
+      ? {
+          // Mandiri Bill Payment - customer pays via the biller_code/bill_key
+          // shown to them, from any Mandiri channel (ATM, internet/mobile banking).
+          payment_type: "echannel",
+          transaction_details: {
+            order_id: orderId,
+            gross_amount: grossAmount,
+          },
+          echannel: {
+            bill_info1: "Payment for:",
+            bill_info2: `Booking #${booking_id}`,
+          },
+          customer_details: customerDetails,
+          item_details: itemDetails,
+        }
+      : {
+          // Standard Virtual Account bank transfer (BCA/BNI/BRI/Permata).
+          payment_type: "bank_transfer",
+          transaction_details: {
+            order_id: orderId,
+            gross_amount: grossAmount,
+          },
+          bank_transfer: {
+            bank: normalizedBank,
+          },
+          customer_details: customerDetails,
+          item_details: itemDetails,
+        };
 
     let midtransResponse;
     try {
       midtransResponse = await coreApi.charge(chargeParams);
     } catch (midtransError) {
       await client.query("ROLLBACK");
-      console.error("Midtrans charge error:", midtransError);
+      console.error("Midtrans charge error:", midtransError?.ApiResponse || midtransError);
+      const validationMessages = midtransError?.ApiResponse?.validation_messages;
       const apiMessage =
+        (Array.isArray(validationMessages) && validationMessages.length > 0
+          ? validationMessages.join("; ")
+          : null) ||
         midtransError?.ApiResponse?.status_message ||
         midtransError.message ||
         "Payment gateway error.";
@@ -119,11 +158,19 @@ const chargeCardPayment = async (req, res) => {
       transaction_status,
       fraud_status,
       transaction_id,
-      redirect_url, // present when 3DS authentication is required
-      card_type,
-      masked_card,
-      bank,
+      va_numbers, // present for bank_transfer (VA) payments
+      permata_va_number, // Permata returns the VA number in its own field
+      biller_code, // present for echannel (Mandiri) payments
+      bill_key,
+      expiry_time,
     } = midtransResponse;
+
+    const vaNumber =
+      (Array.isArray(va_numbers) && va_numbers.length > 0
+        ? va_numbers[0].va_number
+        : null) ||
+      permata_va_number ||
+      null;
 
     const { paymentStatus, bookingStatus } = mapMidtransStatus(
       transaction_status,
@@ -133,9 +180,9 @@ const chargeCardPayment = async (req, res) => {
     const paymentInsert = await client.query(
       `INSERT INTO Payments
         (booking_id, amount, payment_method, status, transaction_reference,
-         order_id, midtrans_transaction_id, fraud_status, card_type, masked_card,
-         bank, redirect_url, raw_response, paid_at)
-       VALUES ($1, $2, 'credit_card', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         order_id, midtrans_transaction_id, fraud_status, bank, va_number,
+         biller_code, bill_key, expiry_time, raw_response, paid_at)
+       VALUES ($1, $2, 'bank_transfer', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING *`,
       [
         booking_id,
@@ -145,10 +192,11 @@ const chargeCardPayment = async (req, res) => {
         orderId,
         transaction_id,
         fraud_status || null,
-        card_type || null,
-        masked_card || null,
-        bank || null,
-        redirect_url || null,
+        normalizedBank,
+        vaNumber,
+        biller_code || null,
+        bill_key || null,
+        expiry_time || null,
         JSON.stringify(midtransResponse),
         paymentStatus === "paid" ? new Date() : null,
       ],
@@ -176,12 +224,16 @@ const chargeCardPayment = async (req, res) => {
     await client.query("COMMIT");
 
     return res.status(200).json({
-      message: "Card charge processed.",
+      message: "Bank transfer created.",
       data: {
         payment: paymentInsert.rows[0],
         transaction_status,
-        fraud_status,
-        redirect_url: redirect_url || null, // frontend must open this URL (e.g. in an iframe) to finish 3DS
+        // Everything the frontend needs to render payment instructions:
+        bank: normalizedBank,
+        va_number: vaNumber,
+        biller_code: biller_code || null,
+        bill_key: bill_key || null,
+        expiry_time: expiry_time || null,
       },
     });
   } catch (error) {
@@ -196,8 +248,9 @@ const chargeCardPayment = async (req, res) => {
 /**
  * GET /api/payments/status/:order_id
  * Re-checks the transaction status directly with Midtrans (source of truth)
- * and syncs it into our database. Useful right after the 3DS redirect returns
- * to the frontend, before the async webhook notification arrives.
+ * and syncs it into our database. Used by the frontend to poll while the
+ * customer completes their bank transfer, before the async webhook
+ * notification arrives.
  */
 const getPaymentStatus = async (req, res) => {
   const { order_id } = req.params;
@@ -230,8 +283,8 @@ const getPaymentStatus = async (req, res) => {
 
     const updated = await pool.query(
       `UPDATE Payments
-       SET status = $1, fraud_status = $2, raw_response = $3,
-           paid_at = CASE WHEN $1 = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
+       SET status = $1::varchar, fraud_status = $2, raw_response = $3,
+           paid_at = CASE WHEN $1::varchar = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
        WHERE order_id = $4
        RETURNING *`,
       [paymentStatus, fraud_status || null, JSON.stringify(statusResponse), order_id],
@@ -286,8 +339,8 @@ const handleMidtransNotification = async (req, res) => {
 
     await pool.query(
       `UPDATE Payments
-       SET status = $1, fraud_status = $2, raw_response = $3,
-           paid_at = CASE WHEN $1 = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
+       SET status = $1::varchar, fraud_status = $2, raw_response = $3,
+           paid_at = CASE WHEN $1::varchar = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
        WHERE order_id = $4`,
       [paymentStatus, fraud_status || null, JSON.stringify(statusResponse), order_id],
     );
@@ -368,7 +421,7 @@ const cancelPayment = async (req, res) => {
 };
 
 module.exports = {
-  chargeCardPayment,
+  chargeBankTransferPayment,
   getPaymentStatus,
   handleMidtransNotification,
   cancelPayment,
