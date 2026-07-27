@@ -20,20 +20,23 @@ const schema = z.object({
 
 type Form = z.infer<typeof schema>;
 
-const FLOORS = [
-  "Floor 5",
-  "Floor 6",
-  "Floor 7",
-  "Floor 8",
-  "Floor 10",
-  "Floor 11",
-  "Floor 15",
-  "Floor 18",
-  "Floor 19",
-  "Floor 20",
-  "Floor 25",
-];
 const TERMS = ["1 Year", "5 Years", "10 Years", "15 Years", "20 Years"];
+
+// Derives the list of selectable floors from a workspace's own floorRange
+// (e.g. "Floors 5-8" or "Floors 5 – 10") instead of a single hardcoded list
+// shared by every pack. This keeps the dropdown in sync with what the
+// backend actually accepts for that pack (see bookings.controller.js,
+// which validates floor_booked against Floor_Packs.floor_range).
+function getFloorOptions(floorRange: string): string[] {
+  const match = floorRange.match(/(\d+)\D+(\d+)/);
+  if (!match) return [];
+  const min = Number(match[1]);
+  const max = Number(match[2]);
+  if (isNaN(min) || isNaN(max) || min > max) return [];
+  const floors: string[] = [];
+  for (let f = min; f <= max; f++) floors.push(`Floor ${f}`);
+  return floors;
+}
 
 function calcEndDate(date: string, commitmentTerms: string): string | null {
   if (!date || !commitmentTerms) return null;
@@ -66,6 +69,7 @@ export default function RentDetailsPage({
 
   const w = watch();
   const endDate = calcEndDate(w.date, w.commitmentTerms);
+  const floorOptions = getFloorOptions(workspace.floorRange);
 
   const onSubmit = (data: Form) => {
     // Simpan ke sessionStorage saja — booking dibuat setelah payment berhasil
@@ -154,14 +158,22 @@ export default function RentDetailsPage({
                   <select
                     {...register("floor")}
                     className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 bg-white"
+                    disabled={floorOptions.length === 0}
                   >
-                    <option value="">Select floor</option>
-                    {FLOORS.map((f) => (
+                    <option value="">
+                      {floorOptions.length > 0
+                        ? "Select floor"
+                        : "No floors available for this pack"}
+                    </option>
+                    {floorOptions.map((f) => (
                       <option key={f} value={f}>
                         {f}
                       </option>
                     ))}
                   </select>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Available for this pack: {workspace.floorRange}
+                  </p>
                   {errors.floor && (
                     <p className="text-red-500 text-[10px] mt-1">
                       {errors.floor.message}
