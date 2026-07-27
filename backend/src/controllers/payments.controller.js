@@ -283,8 +283,8 @@ const getPaymentStatus = async (req, res) => {
 
     const updated = await pool.query(
       `UPDATE Payments
-       SET status = $1, fraud_status = $2, raw_response = $3,
-           paid_at = CASE WHEN $1 = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
+       SET status = $1::varchar, fraud_status = $2, raw_response = $3,
+           paid_at = CASE WHEN $1::varchar = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
        WHERE order_id = $4
        RETURNING *`,
       [paymentStatus, fraud_status || null, JSON.stringify(statusResponse), order_id],
@@ -339,8 +339,8 @@ const handleMidtransNotification = async (req, res) => {
 
     await pool.query(
       `UPDATE Payments
-       SET status = $1, fraud_status = $2, raw_response = $3,
-           paid_at = CASE WHEN $1 = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
+       SET status = $1::varchar, fraud_status = $2, raw_response = $3,
+           paid_at = CASE WHEN $1::varchar = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
        WHERE order_id = $4`,
       [paymentStatus, fraud_status || null, JSON.stringify(statusResponse), order_id],
     );
