@@ -4,24 +4,10 @@ const { coreApi } = require("../config/midtrans");
 const { mapMidtransStatus } = require("../utils/midtransStatus");
 
 const PAYABLE_BOOKING_STATUSES = ["pending"];
-
-// Banks supported through Midtrans Core API's `bank_transfer` payment type
-// (each produces a Virtual Account number the customer transfers to).
 const VA_BANKS = ["bca", "bni", "bri", "permata"];
-// Mandiri Bill Payment uses a separate Core API payment type (`echannel`)
-// and returns a biller_code/bill_key pair instead of a va_number.
 const ECHANNEL_BANKS = ["mandiri"];
 const SUPPORTED_BANKS = [...VA_BANKS, ...ECHANNEL_BANKS];
 
-/**
- * POST /api/payments/bank-transfer/charge
- * Body: { booking_id, bank }
- *
- * `bank` must be one of SUPPORTED_BANKS. No sensitive payment instrument data
- * is ever collected from the client - Midtrans generates a Virtual Account
- * (or, for Mandiri, a biller_code/bill_key pair) that the customer pays into
- * from their own banking app; we just relay the booking amount.
- */
 const chargeBankTransferPayment = async (req, res) => {
   const userId = req.user.user_id;
   const { booking_id, bank } = req.body;
@@ -43,7 +29,6 @@ const chargeBankTransferPayment = async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // Lock the booking row to avoid double-charging on concurrent requests.
     const bookingResult = await client.query(
       `SELECT b.booking_id, b.user_id, b.total_price, b.status
        FROM Bookings b
@@ -58,7 +43,6 @@ const chargeBankTransferPayment = async (req, res) => {
     }
 
     const booking = bookingResult.rows[0];
-
     if (!PAYABLE_BOOKING_STATUSES.includes(booking.status)) {
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -66,13 +50,13 @@ const chargeBankTransferPayment = async (req, res) => {
       });
     }
 
-    // Prevent double charging: if there's already a paid/pending-challenge payment, block.
     const existingPayment = await client.query(
       `SELECT payment_id, status FROM Payments
        WHERE booking_id = $1 AND status IN ('paid', 'challenge')
        ORDER BY created_at DESC LIMIT 1`,
       [booking_id],
     );
+
     if (existingPayment.rows.length > 0) {
       await client.query("ROLLBACK");
       return res.status(409).json({
@@ -96,6 +80,7 @@ const chargeBankTransferPayment = async (req, res) => {
       email: user.email,
       phone: user.phone_number || undefined,
     };
+
     const itemDetails = [
       {
         id: `PACK-${booking_id}`,
@@ -106,16 +91,10 @@ const chargeBankTransferPayment = async (req, res) => {
     ];
 
     const isEchannel = ECHANNEL_BANKS.includes(normalizedBank);
-
     const chargeParams = isEchannel
       ? {
-          // Mandiri Bill Payment - customer pays via the biller_code/bill_key
-          // shown to them, from any Mandiri channel (ATM, internet/mobile banking).
           payment_type: "echannel",
-          transaction_details: {
-            order_id: orderId,
-            gross_amount: grossAmount,
-          },
+          transaction_details: { order_id: orderId, gross_amount: grossAmount },
           echannel: {
             bill_info1: "Payment for:",
             bill_info2: `Booking #${booking_id}`,
@@ -124,15 +103,9 @@ const chargeBankTransferPayment = async (req, res) => {
           item_details: itemDetails,
         }
       : {
-          // Standard Virtual Account bank transfer (BCA/BNI/BRI/Permata).
           payment_type: "bank_transfer",
-          transaction_details: {
-            order_id: orderId,
-            gross_amount: grossAmount,
-          },
-          bank_transfer: {
-            bank: normalizedBank,
-          },
+          transaction_details: { order_id: orderId, gross_amount: grossAmount },
+          bank_transfer: { bank: normalizedBank },
           customer_details: customerDetails,
           item_details: itemDetails,
         };
@@ -142,8 +115,12 @@ const chargeBankTransferPayment = async (req, res) => {
       midtransResponse = await coreApi.charge(chargeParams);
     } catch (midtransError) {
       await client.query("ROLLBACK");
-      console.error("Midtrans charge error:", midtransError?.ApiResponse || midtransError);
-      const validationMessages = midtransError?.ApiResponse?.validation_messages;
+      console.error(
+        "Midtrans charge error:",
+        midtransError?.ApiResponse || midtransError,
+      );
+      const validationMessages =
+        midtransError?.ApiResponse?.validation_messages;
       const apiMessage =
         (Array.isArray(validationMessages) && validationMessages.length > 0
           ? validationMessages.join("; ")
@@ -158,9 +135,9 @@ const chargeBankTransferPayment = async (req, res) => {
       transaction_status,
       fraud_status,
       transaction_id,
-      va_numbers, // present for bank_transfer (VA) payments
-      permata_va_number, // Permata returns the VA number in its own field
-      biller_code, // present for echannel (Mandiri) payments
+      va_numbers,
+      permata_va_number,
+      biller_code,
       bill_key,
       expiry_time,
     } = midtransResponse;
@@ -211,8 +188,7 @@ const chargeBankTransferPayment = async (req, res) => {
 
     if (paymentStatus === "paid") {
       await client.query(
-        `INSERT INTO Notifications (user_id, title, message)
-         VALUES ($1, $2, $3)`,
+        `INSERT INTO Notifications (user_id, title, message) VALUES ($1, $2, $3)`,
         [
           userId,
           "Payment Successful",
@@ -228,7 +204,6 @@ const chargeBankTransferPayment = async (req, res) => {
       data: {
         payment: paymentInsert.rows[0],
         transaction_status,
-        // Everything the frontend needs to render payment instructions:
         bank: normalizedBank,
         va_number: vaNumber,
         biller_code: biller_code || null,
@@ -245,21 +220,13 @@ const chargeBankTransferPayment = async (req, res) => {
   }
 };
 
-/**
- * GET /api/payments/status/:order_id
- * Re-checks the transaction status directly with Midtrans (source of truth)
- * and syncs it into our database. Used by the frontend to poll while the
- * customer completes their bank transfer, before the async webhook
- * notification arrives.
- */
 const getPaymentStatus = async (req, res) => {
   const { order_id } = req.params;
   const userId = req.user.user_id;
 
   try {
     const paymentResult = await pool.query(
-      `SELECT p.*, b.user_id
-       FROM Payments p
+      `SELECT p.*, b.user_id FROM Payments p
        JOIN Bookings b ON b.booking_id = p.booking_id
        WHERE p.order_id = $1`,
       [order_id],
@@ -287,7 +254,12 @@ const getPaymentStatus = async (req, res) => {
            paid_at = CASE WHEN $1::varchar = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
        WHERE order_id = $4
        RETURNING *`,
-      [paymentStatus, fraud_status || null, JSON.stringify(statusResponse), order_id],
+      [
+        paymentStatus,
+        fraud_status || null,
+        JSON.stringify(statusResponse),
+        order_id,
+      ],
     );
 
     await pool.query(`UPDATE Bookings SET status = $1 WHERE booking_id = $2`, [
@@ -302,13 +274,6 @@ const getPaymentStatus = async (req, res) => {
   }
 };
 
-/**
- * POST /api/payments/notification
- * Public webhook Midtrans calls asynchronously. No JWT here - instead we
- * re-fetch the transaction status from Midtrans using the order_id from the
- * notification body, which is the officially recommended way to trust a
- * notification (rather than trusting the POST body's fields directly).
- */
 const handleMidtransNotification = async (req, res) => {
   try {
     const notification = req.body;
@@ -318,7 +283,6 @@ const handleMidtransNotification = async (req, res) => {
       return res.status(400).json({ message: "order_id missing." });
     }
 
-    // Re-verify with Midtrans directly (also validates the signature key internally).
     const statusResponse = await coreApi.transaction.notification(notification);
     const { transaction_status, fraud_status, order_id } = statusResponse;
 
@@ -326,8 +290,8 @@ const handleMidtransNotification = async (req, res) => {
       `SELECT * FROM Payments WHERE order_id = $1`,
       [order_id],
     );
+
     if (paymentResult.rows.length === 0) {
-      // Acknowledge with 200 so Midtrans doesn't keep retrying for an unknown order.
       return res.status(200).json({ message: "Order not found, ignored." });
     }
 
@@ -342,7 +306,12 @@ const handleMidtransNotification = async (req, res) => {
        SET status = $1::varchar, fraud_status = $2, raw_response = $3,
            paid_at = CASE WHEN $1::varchar = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
        WHERE order_id = $4`,
-      [paymentStatus, fraud_status || null, JSON.stringify(statusResponse), order_id],
+      [
+        paymentStatus,
+        fraud_status || null,
+        JSON.stringify(statusResponse),
+        order_id,
+      ],
     );
 
     await pool.query(`UPDATE Bookings SET status = $1 WHERE booking_id = $2`, [
@@ -370,23 +339,19 @@ const handleMidtransNotification = async (req, res) => {
     return res.status(200).json({ message: "Notification processed." });
   } catch (error) {
     console.error("Midtrans notification error:", error);
-    // Still respond 200 to avoid endless retries once we've logged the issue,
-    // unless it's a payload we couldn't parse at all.
     return res.status(200).json({ message: "Notification received." });
   }
 };
 
-/**
- * POST /api/payments/:order_id/cancel
- * Admin-only: cancel a still-pending/authorized transaction on Midtrans's side.
- */
 const cancelPayment = async (req, res) => {
   const { order_id } = req.params;
+
   try {
     const paymentResult = await pool.query(
       `SELECT * FROM Payments WHERE order_id = $1`,
       [order_id],
     );
+
     if (paymentResult.rows.length === 0) {
       return res.status(404).json({ message: "Payment not found." });
     }
@@ -408,10 +373,9 @@ const cancelPayment = async (req, res) => {
       paymentResult.rows[0].booking_id,
     ]);
 
-    return res.status(200).json({
-      message: "Payment cancelled.",
-      data: updated.rows[0],
-    });
+    return res
+      .status(200)
+      .json({ message: "Payment cancelled.", data: updated.rows[0] });
   } catch (error) {
     console.error(error);
     const apiMessage =
@@ -420,9 +384,29 @@ const cancelPayment = async (req, res) => {
   }
 };
 
+const getAllPayments = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+        p.*,
+        b.pack_id, b.floor_booked, b.start_date, b.end_date,
+        u.username, u.email
+       FROM Payments p
+       JOIN Bookings b ON b.booking_id = p.booking_id
+       JOIN Users u ON u.user_id = b.user_id
+       ORDER BY p.created_at DESC`,
+    );
+    return res.status(200).json({ data: result.rows });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
 module.exports = {
   chargeBankTransferPayment,
   getPaymentStatus,
   handleMidtransNotification,
   cancelPayment,
+  getAllPayments,
 };

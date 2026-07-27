@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import {
   Download,
@@ -11,7 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  AlertCircle,
 } from "lucide-react";
 
 interface Transaction {
@@ -24,9 +22,11 @@ interface Transaction {
   amount: string;
   amountRaw: number;
   status: "Paid" | "Pending" | "Refunded" | "Failed";
+  month: number;
+  year: number;
 }
 
-const STORAGE_KEY = "admin_transactions";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 
 const STATUS_STYLE: Record<string, string> = {
   Paid: "bg-green-50 text-green-700 border border-green-200",
@@ -35,6 +35,20 @@ const STATUS_STYLE: Record<string, string> = {
   Failed: "bg-red-50 text-red-700 border border-red-200",
 };
 
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 const PER_PAGE = 5;
 
 function Modal({
@@ -69,31 +83,135 @@ function Modal({
   );
 }
 
+// Simple bar chart
+function BarChart({ data, labels }: { data: number[]; labels: string[] }) {
+  const max = Math.max(...data, 1);
+  return (
+    <div className="flex items-end gap-1 h-32">
+      {data.map((val, i) => (
+        <div
+          key={i}
+          className="flex-1 flex flex-col items-center gap-1 h-full justify-end"
+        >
+          <div
+            className="w-full rounded-t-sm transition-all duration-500"
+            style={{
+              height: `${(val / max) * 85}%`,
+              backgroundColor: i === data.length - 1 ? "#C9A36A" : "#E8D5B0",
+              minHeight: val > 0 ? "3px" : "0",
+            }}
+          />
+          <span className="text-[9px] font-semibold text-[#2B2B2B]/50">
+            {labels[i]}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function PaymentManagementPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filter, setFilter] = useState("All");
   const [page, setPage] = useState(1);
   const [chartTab, setChartTab] = useState("Last 6 Months");
-  const [modal, setModal] = useState<"export" | "refund" | "filter" | null>(
-    null,
-  );
-  const [refundForm, setRefundForm] = useState({
-    invoiceId: "",
-    reason: "",
-    amount: "",
-    tenantName: "",
-    tenantEmail: "",
-    tenantPhone: "",
-    bookingId: "",
-    property: "",
-    refundMethod: "",
-  });
+  const [modal, setModal] = useState<"export" | "filter" | null>(null);
   const [exportFormat, setExportFormat] = useState("PDF");
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    setTransactions(stored ? JSON.parse(stored) : []);
+    const token = localStorage.getItem("token");
+    fetch(`${API_URL}/api/payments`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) {
+          const mapped: Transaction[] = result.data.map(
+            (p: {
+              payment_id: number;
+              booking_id: number;
+              amount: number;
+              payment_method: string;
+              status: string;
+              order_id: string;
+              bank: string;
+              created_at: string;
+              username: string;
+              email: string;
+              pack_id: number;
+              floor_booked: number;
+            }) => {
+              const d = new Date(p.created_at);
+              return {
+                id: String(p.payment_id),
+                invoiceId: p.order_id || `PAY-${p.payment_id}`,
+                tenant: p.username || p.email || "Unknown",
+                property: `Pack ${p.pack_id} - Floor ${p.floor_booked}`,
+                date: d.toLocaleDateString("id-ID"),
+                method: p.bank ? p.bank.toUpperCase() : p.payment_method,
+                amount: `Rp ${Number(p.amount).toLocaleString("id-ID")}`,
+                amountRaw: Number(p.amount),
+                status:
+                  p.status === "paid"
+                    ? "Paid"
+                    : p.status === "pending"
+                      ? "Pending"
+                      : p.status === "cancelled"
+                        ? "Failed"
+                        : p.status === "refund"
+                          ? "Refunded"
+                          : ("Pending" as Transaction["status"]),
+                month: d.getMonth(),
+                year: d.getFullYear(),
+              };
+            },
+          );
+          setTransactions(mapped);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch payments:", err));
   }, []);
+
+  // Build chart data
+  const now = new Date();
+  const chartMonths = chartTab === "Last 6 Months" ? 6 : 12;
+  const chartLabels: string[] = [];
+  const chartData: number[] = [];
+
+  for (let i = chartMonths - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    chartLabels.push(MONTHS[d.getMonth()]);
+    chartData.push(
+      transactions
+        .filter(
+          (t) =>
+            t.status === "Paid" &&
+            t.month === d.getMonth() &&
+            t.year === d.getFullYear(),
+        )
+        .reduce((sum, t) => sum + t.amountRaw, 0) / 1_000_000, // in millions
+    );
+  }
+
+  // Stats
+  const paidTotal = transactions
+    .filter((t) => t.status === "Paid")
+    .reduce((s, t) => s + t.amountRaw, 0);
+  const thisMonth = transactions
+    .filter(
+      (t) =>
+        t.status === "Paid" &&
+        t.month === now.getMonth() &&
+        t.year === now.getFullYear(),
+    )
+    .reduce((s, t) => s + t.amountRaw, 0);
+  const totalTx = transactions.length;
+
+  // Payment method breakdown
+  const methodCount: Record<string, number> = {};
+  transactions.forEach((t) => {
+    methodCount[t.method] = (methodCount[t.method] || 0) + 1;
+  });
 
   const filtered = transactions.filter(
     (t) => filter === "All" || t.status === filter,
@@ -102,39 +220,28 @@ export default function PaymentManagementPage() {
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   const handleExport = () => {
-    // TODO: GET /api/admin/payments/export?format=PDF|Excel
     alert(`Exporting as ${exportFormat}... (connect to API)`);
     setModal(null);
   };
 
-  const handleRefund = () => {
-    // TODO: POST /api/admin/payments/refund
-    alert(
-      `Refund submitted for invoice ${refundForm.invoiceId} (connect to API)`,
-    );
-    setRefundForm({
-      invoiceId: "",
-      reason: "",
-      amount: "",
-      tenantName: "",
-      tenantEmail: "",
-      tenantPhone: "",
-      bookingId: "",
-      property: "",
-      refundMethod: "",
-    });
-    setModal(null);
-  };
-
   const stats = [
-    { label: "Daily Revenue", value: null, icon: TrendingUp },
-    { label: "Monthly Revenue", value: null, icon: DollarSign },
-    { label: "Total Transactions", value: null, icon: BarChart2 },
-    { label: "Annual Revenue", value: null, icon: CreditCard },
+    {
+      label: "Monthly Revenue",
+      value: thisMonth > 0 ? `Rp ${(thisMonth / 1_000_000).toFixed(0)}M` : "—",
+      icon: TrendingUp,
+    },
+    {
+      label: "Total Revenue",
+      value: paidTotal > 0 ? `Rp ${(paidTotal / 1_000_000).toFixed(0)}M` : "—",
+      icon: DollarSign,
+    },
+    { label: "Total Transactions", value: totalTx || "—", icon: BarChart2 },
+    {
+      label: "Paid Transactions",
+      value: transactions.filter((t) => t.status === "Paid").length || "—",
+      icon: CreditCard,
+    },
   ];
-
-  const inputCls =
-    "w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none transition-all";
 
   return (
     <div>
@@ -151,24 +258,16 @@ export default function PaymentManagementPage() {
             Detailed financial overview and transaction ledger
           </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setModal("export")}
-            className="flex items-center gap-1.5 border-2 border-[#C9A36A]/40 text-[#C9A36A] text-xs font-bold px-4 py-2 rounded-xl hover:bg-[#C9A36A]/5 transition-colors"
-          >
-            <Download size={13} /> Export PDF
-          </button>
-          <button
-            onClick={() => setModal("refund")}
-            className="flex items-center gap-1.5 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
-          >
-            + Refund
-          </button>
-        </div>
+        <button
+          onClick={() => setModal("export")}
+          className="flex items-center gap-1.5 border-2 border-[#C9A36A]/40 text-[#C9A36A] text-xs font-bold px-4 py-2 rounded-xl hover:bg-[#C9A36A]/5 transition-colors"
+        >
+          <Download size={13} /> Export
+        </button>
       </div>
 
-      {/* Stats - semua putih */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {stats.map((s) => {
           const Icon = s.icon;
           return (
@@ -182,9 +281,7 @@ export default function PaymentManagementPage() {
               <p className="text-[10px] font-semibold text-[#2B2B2B]/50 uppercase tracking-wider mb-0.5">
                 {s.label}
               </p>
-              <p className="text-xl font-bold text-[#2B2B2B]">
-                {s.value ?? "—"}
-              </p>
+              <p className="text-xl font-bold text-[#2B2B2B]">{s.value}</p>
             </div>
           );
         })}
@@ -194,13 +291,13 @@ export default function PaymentManagementPage() {
       <div className="grid md:grid-cols-3 gap-4 mb-6">
         {/* Revenue Chart */}
         <div className="md:col-span-2 bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-sm font-bold text-[#2B2B2B]">
                 Revenue Performance
               </p>
               <p className="text-[10px] text-[#2B2B2B]/50">
-                Gold & Silver trend analysis
+                Monthly revenue in millions (Rp)
               </p>
             </div>
             <div className="flex gap-1 border-2 border-[#C9A36A]/30 rounded-lg p-0.5">
@@ -215,21 +312,21 @@ export default function PaymentManagementPage() {
               ))}
             </div>
           </div>
-          <div className="h-40 flex items-center justify-center border-2 border-dashed border-[#C9A36A]/20 rounded-xl mt-4">
-            <p className="text-xs text-[#2B2B2B]/30">
-              {chartTab === "Last 6 Months"
-                ? "Last 6 months chart will appear here"
-                : "Last year chart will appear here"}
-            </p>
-          </div>
+          {transactions.length > 0 ? (
+            <BarChart data={chartData} labels={chartLabels} />
+          ) : (
+            <div className="h-32 flex items-center justify-center border-2 border-dashed border-[#C9A36A]/20 rounded-xl">
+              <p className="text-xs text-[#2B2B2B]/30">No payment data yet</p>
+            </div>
+          )}
           <div className="mt-3 pt-3 border-t border-[#C9A36A]/10 flex gap-4">
             <span className="flex items-center gap-1.5 text-[10px] font-semibold text-[#2B2B2B]/60">
               <span className="w-3 h-2 rounded-sm bg-[#C9A36A] inline-block" />{" "}
-              Revenue
+              Current Month
             </span>
             <span className="flex items-center gap-1.5 text-[10px] font-semibold text-[#2B2B2B]/60">
               <span className="w-3 h-2 rounded-sm bg-[#E8D5B0] inline-block" />{" "}
-              Projected
+              Previous Months
             </span>
           </div>
         </div>
@@ -239,19 +336,35 @@ export default function PaymentManagementPage() {
           <p className="text-sm font-bold text-[#2B2B2B] mb-4">
             Payment Methods
           </p>
-          <div className="py-8 text-center border-2 border-dashed border-[#C9A36A]/20 rounded-xl mb-4">
-            <p className="text-xs text-[#2B2B2B]/30">
-              Payment method data will appear here
-            </p>
-          </div>
-          <div className="bg-[#F5F0E8] rounded-xl p-3">
-            <p className="text-[10px] font-bold text-[#C9A36A] uppercase tracking-wider mb-1">
-              Efficiency Note
-            </p>
-            <p className="text-[10px] text-[#2B2B2B]/70 leading-relaxed">
-              Transaction data will be analyzed after API integration.
-            </p>
-          </div>
+          {Object.keys(methodCount).length > 0 ? (
+            <div className="space-y-3">
+              {Object.entries(methodCount).map(([method, count]) => {
+                const total = transactions.length;
+                const pct = Math.round((count / total) * 100);
+                return (
+                  <div key={method}>
+                    <div className="flex justify-between text-xs font-semibold text-[#2B2B2B] mb-1">
+                      <span>{method}</span>
+                      <span className="text-[#C9A36A]">{pct}%</span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-[#C9A36A] rounded-full transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-[#2B2B2B]/40 mt-0.5">
+                      {count} transactions
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="py-8 text-center border-2 border-dashed border-[#C9A36A]/20 rounded-xl">
+              <p className="text-xs text-[#2B2B2B]/30">No payment data yet</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -262,7 +375,7 @@ export default function PaymentManagementPage() {
             Recent Transactions
           </p>
           <div className="flex items-center gap-2">
-            <div className="flex gap-1">
+            <div className="flex gap-1 flex-wrap">
               {["All", "Paid", "Pending", "Refunded", "Failed"].map((f) => (
                 <button
                   key={f}
@@ -284,88 +397,87 @@ export default function PaymentManagementPage() {
             </button>
           </div>
         </div>
-
-        <table className="w-full">
-          <thead className="bg-[#F5F0E8]">
-            <tr>
-              {[
-                "Invoice #",
-                "Tenant",
-                "Property",
-                "Date",
-                "Method",
-                "Amount",
-                "Status",
-              ].map((h) => (
-                <th
-                  key={h}
-                  className="text-left text-[9px] font-bold text-[#2B2B2B]/50 uppercase tracking-wider px-4 py-2.5"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {paginated.length === 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[600px]">
+            <thead className="bg-[#F5F0E8]">
               <tr>
-                <td
-                  colSpan={7}
-                  className="py-12 text-center text-sm text-[#2B2B2B]/30"
-                >
-                  No transactions found
-                </td>
+                {[
+                  "Invoice #",
+                  "Tenant",
+                  "Property",
+                  "Date",
+                  "Method",
+                  "Amount",
+                  "Status",
+                ].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left text-[9px] font-bold text-[#2B2B2B]/50 uppercase tracking-wider px-4 py-2.5"
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ) : (
-              paginated.map((t) => (
-                <tr
-                  key={t.id}
-                  className="border-t border-[#C9A36A]/10 hover:bg-[#F5F0E8]/30 transition-colors"
-                >
-                  <td className="px-4 py-3">
-                    <span className="text-[10px] font-bold text-[#C9A36A]">
-                      {t.invoiceId}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="text-xs font-bold text-[#2B2B2B]">
-                      {t.tenant}
-                    </p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="text-xs text-[#2B2B2B]/70 max-w-[120px] truncate">
-                      {t.property}
-                    </p>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-[#2B2B2B]/60">
-                    {t.date}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-[10px] font-bold bg-[#F5F0E8] text-[#C9A36A] px-2 py-1 rounded-lg">
-                      {t.method}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p
-                      className={`text-xs font-bold ${t.status === "Refunded" ? "line-through text-[#2B2B2B]/40" : "text-[#2B2B2B]"}`}
-                    >
-                      {t.amount}
-                    </p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`text-[10px] font-bold px-2 py-1 rounded-full ${STATUS_STYLE[t.status]}`}
-                    >
-                      {t.status}
-                    </span>
+            </thead>
+            <tbody>
+              {paginated.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="py-12 text-center text-sm text-[#2B2B2B]/30"
+                  >
+                    No transactions found
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-
-        {/* Pagination */}
+              ) : (
+                paginated.map((t) => (
+                  <tr
+                    key={t.id}
+                    className="border-t border-[#C9A36A]/10 hover:bg-[#F5F0E8]/30 transition-colors"
+                  >
+                    <td className="px-4 py-3">
+                      <span className="text-[10px] font-bold text-[#C9A36A]">
+                        {t.invoiceId}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="text-xs font-bold text-[#2B2B2B]">
+                        {t.tenant}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="text-xs text-[#2B2B2B]/70 max-w-[120px] truncate">
+                        {t.property}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-[#2B2B2B]/60">
+                      {t.date}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-[10px] font-bold bg-[#F5F0E8] text-[#C9A36A] px-2 py-1 rounded-lg">
+                        {t.method}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p
+                        className={`text-xs font-bold ${t.status === "Refunded" ? "line-through text-[#2B2B2B]/40" : "text-[#2B2B2B]"}`}
+                      >
+                        {t.amount}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`text-[10px] font-bold px-2 py-1 rounded-full ${STATUS_STYLE[t.status]}`}
+                      >
+                        {t.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
         <div className="flex items-center justify-between px-4 py-3 border-t border-[#C9A36A]/10 bg-[#F5F0E8]/20">
           <p className="text-[11px] text-[#2B2B2B]/50">
             Showing{" "}
@@ -381,7 +493,7 @@ export default function PaymentManagementPage() {
               disabled={page === 1}
               className="flex items-center gap-1 px-3 py-1.5 border-2 border-[#C9A36A]/30 rounded-lg text-[10px] font-bold text-[#C9A36A] hover:border-[#C9A36A] disabled:opacity-30 transition-colors"
             >
-              <ChevronLeft size={12} /> Previous
+              <ChevronLeft size={12} /> Prev
             </button>
             {Array.from({ length: totalPages }, (_, i) => (
               <button
@@ -403,7 +515,7 @@ export default function PaymentManagementPage() {
         </div>
       </div>
 
-      {/* ── Export Modal ── */}
+      {/* Export Modal */}
       {modal === "export" && (
         <Modal title="Export Report" onClose={() => setModal(null)}>
           <p className="text-xs text-[#2B2B2B]/60 mb-4">
@@ -438,200 +550,9 @@ export default function PaymentManagementPage() {
         </Modal>
       )}
 
-      {/* ── Refund Modal ── */}
-      {modal === "refund" && (
-        <Modal title="Process Refund" onClose={() => setModal(null)}>
-          <div className="flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-xl p-3 mb-5">
-            <AlertCircle
-              size={15}
-              className="text-orange-500 flex-shrink-0 mt-0.5"
-            />
-            <p className="text-[11px] text-orange-700">
-              Refunds are irreversible. Tenant will receive an email
-              notification after submission.
-            </p>
-          </div>
-
-          {/* Tenant Identity */}
-          <p className="text-[10px] font-bold text-[#C9A36A] uppercase tracking-wider mb-3">
-            Tenant Information
-          </p>
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Full Name *
-              </label>
-              <input
-                value={refundForm.tenantName || ""}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, tenantName: e.target.value })
-                }
-                placeholder="Tenant full name"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Email *
-              </label>
-              <input
-                value={refundForm.tenantEmail || ""}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, tenantEmail: e.target.value })
-                }
-                placeholder="tenant@email.com"
-                type="email"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Phone Number
-              </label>
-              <input
-                value={refundForm.tenantPhone || ""}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, tenantPhone: e.target.value })
-                }
-                placeholder="08xxxxxxxxxx"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Booking ID *
-              </label>
-              <input
-                value={refundForm.bookingId || ""}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, bookingId: e.target.value })
-                }
-                placeholder="e.g. BK-2206-001"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Refund Details */}
-          <p className="text-[10px] font-bold text-[#C9A36A] uppercase tracking-wider mb-3">
-            Refund Details
-          </p>
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Invoice ID *
-              </label>
-              <input
-                value={refundForm.invoiceId}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, invoiceId: e.target.value })
-                }
-                placeholder="e.g. INV-2024-5551"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Refund Amount (Rp) *
-              </label>
-              <input
-                value={refundForm.amount}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, amount: e.target.value })
-                }
-                placeholder="e.g. 5000000"
-                type="number"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Property
-              </label>
-              <input
-                value={refundForm.property || ""}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, property: e.target.value })
-                }
-                placeholder="e.g. Wowo Business Pack"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Refund Method *
-              </label>
-              <select
-                value={refundForm.refundMethod || ""}
-                onChange={(e) =>
-                  setRefundForm({ ...refundForm, refundMethod: e.target.value })
-                }
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              >
-                <option value="">Select method</option>
-                <option>BCA Transfer</option>
-                <option>Mandiri Transfer</option>
-                <option>BNI Transfer</option>
-                <option>BRI Transfer</option>
-                <option>Original Payment Method</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="mb-5">
-            <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-              Reason for Refund *
-            </label>
-            <textarea
-              value={refundForm.reason}
-              onChange={(e) =>
-                setRefundForm({ ...refundForm, reason: e.target.value })
-              }
-              placeholder="Provide a detailed reason for refund..."
-              rows={3}
-              className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none resize-none"
-            />
-          </div>
-
-          {/* Email notification note */}
-          <div className="flex items-center gap-2 bg-[#F5F0E8] rounded-xl p-3 mb-5">
-            <div className="w-6 h-6 bg-[#C9A36A]/20 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-[10px]">✉</span>
-            </div>
-            <p className="text-[10px] text-[#2B2B2B]/70">
-              An email notification will be sent to{" "}
-              <strong>{refundForm.tenantEmail || "tenant email"}</strong> after
-              submission.
-              {/* TODO: backend handle email via /api/admin/refund → NodeMailer/SendGrid */}
-            </p>
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              onClick={() => setModal(null)}
-              className="flex-1 border-2 border-gray-200 text-[#2B2B2B] text-xs font-semibold py-2.5 rounded-lg hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleRefund}
-              disabled={
-                !refundForm.invoiceId ||
-                !refundForm.amount ||
-                !refundForm.reason ||
-                !refundForm.tenantEmail
-              }
-              className="flex-1 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50"
-            >
-              Submit Refund
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {/* ── Filter Modal ── */}
+      {/* Filter Modal */}
       {modal === "filter" && (
-        <Modal title="Advanced Filter" onClose={() => setModal(null)}>
+        <Modal title="Filter Transactions" onClose={() => setModal(null)}>
           <div className="space-y-4 mb-5">
             <div>
               <label className="text-xs font-semibold text-[#2B2B2B] block mb-2">
@@ -649,24 +570,6 @@ export default function PaymentManagementPage() {
                 ))}
               </div>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Date From
-              </label>
-              <input
-                type="date"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                Date To
-              </label>
-              <input
-                type="date"
-                className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none"
-              />
-            </div>
           </div>
           <div className="flex gap-3">
             <button
@@ -682,7 +585,7 @@ export default function PaymentManagementPage() {
               onClick={() => setModal(null)}
               className="flex-1 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-bold py-2.5 rounded-lg transition-colors"
             >
-              Apply Filter
+              Apply
             </button>
           </div>
         </Modal>
