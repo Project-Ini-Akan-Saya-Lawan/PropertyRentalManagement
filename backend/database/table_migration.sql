@@ -82,3 +82,36 @@ CREATE INDEX IF NOT EXISTS idx_payments_order_id ON Payments (Order_id);
 CREATE INDEX IF NOT EXISTS idx_payments_booking_id ON Payments (Booking_id);
 
 COMMIT;
+
+-- Migration: switch payments from card charging to bank transfer (Midtrans
+-- Core API `bank_transfer` / `echannel`). Card-only columns (Card_type,
+-- Masked_card, Redirect_url) are dropped since no code writes to them
+-- anymore - the codebase no longer accepts credit_card charges at all.
+BEGIN;
+
+ALTER TABLE Payments
+ADD COLUMN IF NOT EXISTS Va_number VARCHAR(50);
+-- The Virtual Account number the customer transfers to (BCA/BNI/BRI/Permata).
+
+ALTER TABLE Payments
+ADD COLUMN IF NOT EXISTS Biller_code VARCHAR(20);
+-- Mandiri Bill Payment biller code (echannel payments only).
+
+ALTER TABLE Payments
+ADD COLUMN IF NOT EXISTS Bill_key VARCHAR(30);
+-- Mandiri Bill Payment bill key (echannel payments only).
+
+ALTER TABLE Payments
+ADD COLUMN IF NOT EXISTS Expiry_time TIMESTAMP;
+-- When the VA / bill key expires and is no longer payable.
+
+ALTER TABLE Payments
+DROP COLUMN IF EXISTS Card_type;
+
+ALTER TABLE Payments
+DROP COLUMN IF EXISTS Masked_card;
+
+ALTER TABLE Payments
+DROP COLUMN IF EXISTS Redirect_url;
+
+COMMIT;

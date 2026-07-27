@@ -1,24 +1,19 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, CheckCircle2, Lock } from "lucide-react";
-import Script from "next/script";
+import { ArrowLeft, CheckCircle2, Landmark } from "lucide-react";
 import BookingStepper from "@/components/booking/BookingStepper";
-import ThreeDSModal from "@/components/booking/ThreeDSModal";
+import BankTransferModal from "@/components/booking/BankTransferModal";
 import { getWorkspaceBySlug } from "@/data/workspaces";
 import { formatIDR } from "@/lib/utils";
 import { notFound } from "next/navigation";
 import Image from "next/image";
-import { paymentService } from "@/services/payment";
-import type {
-  MidtransCardTokenSuccess,
-  MidtransCardTokenFailure,
-} from "@/types/midtrans";
+import { paymentService, type BankCode } from "@/services/payment";
 
 // Mapping slug → pack_id
 const SLUG_TO_PACK_ID: Record<string, number> = {
@@ -31,12 +26,10 @@ const SLUG_TO_PACK_ID: Record<string, number> = {
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-const MIDTRANS_CLIENT_KEY = process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY || "";
-const MIDTRANS_IS_PRODUCTION =
-  process.env.NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION === "true";
-const MIDTRANS_3DS_SCRIPT_URL = MIDTRANS_IS_PRODUCTION
-  ? "https://api.midtrans.com/v2/assets/js/midtrans-new-3ds.min.js"
-  : "https://api.sandbox.midtrans.com/v2/assets/js/midtrans-new-3ds.min.js";
+
+// How often we poll our backend (which re-verifies with Midtrans) while the
+// bank transfer instructions modal is open, waiting for the customer to pay.
+const STATUS_POLL_INTERVAL_MS = 5000;
 
 const schema = z.object({
   firstName: z.string().min(1, "Required"),
@@ -46,48 +39,27 @@ const schema = z.object({
   countryRegion: z.string().min(1, "Required"),
   postcode: z.string().min(3, "Required"),
   email: z.string().email("Invalid email"),
-  cardNumber: z.string().min(19, "Card number must be 16 digits"),
-  cardholderName: z.string().min(2, "Required"),
-  expiryDate: z
-    .string()
-    .min(5, "MM/YY required")
-    .refine((v) => {
-      const [mm, yy] = v.split("/");
-      if (!mm || !yy) return false;
-      const month = parseInt(mm);
-      const year = parseInt("20" + yy);
-      if (month < 1 || month > 12) return false;
-      const now = new Date();
-      return (
-        new Date(year, month - 1) >= new Date(now.getFullYear(), now.getMonth())
-      );
-    }, "Card is expired or invalid"),
-  cvv: z
-    .string()
-    .min(3, "CVV must be 3 or 4 digits")
-    .max(4, "CVV must be 3 or 4 digits"),
+  bank: z.enum(["bca", "bri", "mandiri"], {
+    errorMap: () => ({ message: "Please choose a bank" }),
+  }),
 });
 
 type Form = z.infer<typeof schema>;
 
-const PAYMENT_LOGOS = [
-  { id: "visa", file: "visa.png" },
-  { id: "jcb", file: "jcb.png" },
-  { id: "mandiri", file: "mandiri.png" },
-  { id: "bca", file: "bca.png" },
-  { id: "mastercard", file: "mastercard.png" },
-  { id: "bri", file: "bri.png" },
+const BANK_OPTIONS: { id: BankCode; label: string; logo: string }[] = [
+  { id: "bca", label: "BCA Virtual Account", logo: "bca.png" },
+  { id: "bri", label: "BRI Virtual Account", logo: "bri.png" },
+  { id: "mandiri", label: "Mandiri Bill Payment", logo: "mandiri.png" },
 ];
 
-// Human-readable messages for the final transaction_status after 3DS / charge.
+// Human-readable messages for the transaction_status once we detect it.
 const STATUS_MESSAGES: Record<string, string> = {
   pending:
-    "Your payment is still being processed. We'll notify you once it's confirmed.",
-  deny: "Your card was declined by the bank. Please try a different card.",
+    "We haven't detected your transfer yet. It can take a few minutes to arrive - feel free to check again shortly.",
+  deny: "The payment was denied. Please try again.",
   cancel: "The payment was cancelled.",
-  expire: "The payment session expired. Please try again.",
-  challenge:
-    "Your payment needs manual review by our team. We'll notify you once it's confirmed.",
+  expire:
+    "The payment window expired before we detected your transfer. Please try again.",
 };
 
 export default function PaymentPage({
@@ -109,35 +81,40 @@ export default function PaymentPage({
   }>({});
   const [done, setDone] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [selectedCard, setSelectedCard] = useState<string>("");
   const [bookingError, setBookingError] = useState<string>("");
-  const [threeDsUrl, setThreeDsUrl] = useState<string | null>(null);
-  const [scriptReady, setScriptReady] = useState(false);
+
+  // Bank transfer instructions modal state.
+  const [showBankModal, setShowBankModal] = useState(false);
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [transferBank, setTransferBank] = useState<BankCode | null>(null);
+  const [vaNumber, setVaNumber] = useState<string | null>(null);
+  const [billerCode, setBillerCode] = useState<string | null>(null);
+  const [billKey, setBillKey] = useState<string | null>(null);
+  const [expiryTime, setExpiryTime] = useState<string | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [statusError, setStatusError] = useState("");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     const raw = sessionStorage.getItem(`rent-${slug}`);
     if (raw) setRentData(JSON.parse(raw));
   }, [slug]);
 
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
   const {
     register,
     handleSubmit,
-    setValue,
+    watch,
     formState: { errors },
   } = useForm<Form>({
     resolver: zodResolver(schema),
   });
-
-  const formatCard = (v: string) =>
-    v
-      .replace(/\D/g, "")
-      .slice(0, 16)
-      .replace(/(.{4})/g, "$1 ")
-      .trim();
-  const formatExpiry = (v: string) => {
-    const d = v.replace(/\D/g, "").slice(0, 4);
-    return d.length >= 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
-  };
+  const selectedBank = watch("bank");
 
   const years = rentData.commitmentTerms
     ? parseInt(rentData.commitmentTerms) || 1
@@ -146,86 +123,102 @@ export default function PaymentPage({
   const tax = yearly * workspace.taxRate;
   const total = yearly + tax;
 
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
   const finishSuccess = () => {
     sessionStorage.removeItem(`rent-${slug}`);
     sessionStorage.removeItem(`confirm-${slug}`);
-    setThreeDsUrl(null);
+    stopPolling();
+    setShowBankModal(false);
     setProcessing(false);
     setDone(true);
     setTimeout(() => router.push("/account"), 3000);
   };
 
-  // Called after the 3DS iframe finishes (success/failure/pending). We
-  // re-check the definitive status from our backend (which itself
-  // re-verifies with Midtrans) rather than trusting the callback payload.
-  const finalizeAfterThreeDs = async (orderId: string) => {
+  // Re-checks the definitive status from our backend (which itself
+  // re-verifies with Midtrans) rather than trusting a client-side timer
+  // alone. Used both for the background poll and the manual "I've paid"
+  // button.
+  const checkStatus = async (id: string, { silent = false } = {}) => {
+    if (!silent) setCheckingStatus(true);
+    setStatusError("");
     try {
-      const statusResult = await paymentService.getStatus(orderId);
+      const statusResult = await paymentService.getStatus(id);
       const status = statusResult.data.status;
-      setThreeDsUrl(null);
       if (status === "paid") {
         finishSuccess();
-      } else {
-        setBookingError(
-          STATUS_MESSAGES[status] ||
-            `Payment status: ${status}. Please check your account for updates.`,
+        return;
+      }
+      if (["deny", "cancel", "expire"].includes(status)) {
+        stopPolling();
+        setStatusError(
+          STATUS_MESSAGES[status] || `Payment status: ${status}.`,
         );
-        setProcessing(false);
+      } else if (!silent) {
+        setStatusError(
+          STATUS_MESSAGES[status] ||
+            "Still waiting for your transfer to be detected.",
+        );
       }
     } catch (err) {
-      console.warn("finalizeAfterThreeDs failed:", err instanceof Error ? err.message : err);
-      setThreeDsUrl(null);
-      setBookingError(
-        "Could not confirm payment status. Please check your account before retrying.",
-      );
-      setProcessing(false);
+      console.warn("checkStatus failed:", err instanceof Error ? err.message : err);
+      if (!silent) {
+        setStatusError(
+          "Could not check payment status right now. Please try again in a moment.",
+        );
+      }
+    } finally {
+      if (!silent) setCheckingStatus(false);
     }
   };
 
-  const chargeWithToken = async (bookingId: number, tokenId: string) => {
+  const startBankTransfer = async (bookingId: number, bank: BankCode) => {
     try {
-      const chargeResult = await paymentService.chargeCard(bookingId, tokenId);
-      const { transaction_status, redirect_url, payment } = chargeResult.data;
+      const chargeResult = await paymentService.chargeBankTransfer(
+        bookingId,
+        bank,
+      );
+      const { payment, transaction_status, va_number, biller_code, bill_key, expiry_time } =
+        chargeResult.data;
 
-      if (redirect_url) {
-        // Card requires 3DS authentication - open it and wait for the result.
-        if (!window.MidtransNew3ds) {
-          setBookingError(
-            "Payment verification library failed to load. Please refresh and try again.",
-          );
-          setProcessing(false);
-          return;
-        }
-        window.MidtransNew3ds.authenticate(redirect_url, {
-          performAuthentication: (url) => setThreeDsUrl(url),
-          onSuccess: () => finalizeAfterThreeDs(payment.order_id),
-          onFailure: () => finalizeAfterThreeDs(payment.order_id),
-          onPending: () => finalizeAfterThreeDs(payment.order_id),
-        });
-        return;
-      }
+      setOrderId(payment.order_id);
+      setTransferBank(bank);
+      setVaNumber(va_number);
+      setBillerCode(biller_code);
+      setBillKey(bill_key);
+      setExpiryTime(expiry_time);
+      setStatusError("");
+      setShowBankModal(true);
+      setProcessing(false);
 
-      if (transaction_status === "capture" || transaction_status === "settlement") {
+      if (transaction_status === "settlement" || transaction_status === "capture") {
+        // Extremely unlikely for bank transfer, but handle gracefully if
+        // Midtrans ever reports it as already settled.
         finishSuccess();
         return;
       }
 
-      setBookingError(
-        STATUS_MESSAGES[transaction_status] ||
-          `Payment status: ${transaction_status}. Please check your account for updates.`,
-      );
-      setProcessing(false);
+      // Poll in the background so the booking confirms automatically once
+      // the transfer is detected, without the user needing to keep clicking.
+      pollRef.current = setInterval(() => {
+        checkStatus(payment.order_id, { silent: true });
+      }, STATUS_POLL_INTERVAL_MS);
     } catch (err) {
-      console.warn("chargeWithToken failed:", err instanceof Error ? err.message : err);
+      console.warn("startBankTransfer failed:", err instanceof Error ? err.message : err);
       setBookingError(
-        err instanceof Error ? err.message : "Failed to process payment.",
+        err instanceof Error ? err.message : "Failed to create bank transfer.",
       );
       setProcessing(false);
     }
   };
 
-  // Releases a booking that was created but never got paid (e.g. card
-  // tokenization failed or crashed) so the floor doesn't stay stuck as
+  // Releases a booking that was created but never got a successful charge
+  // request (e.g. network error) so the floor doesn't stay stuck as
   // "pending" forever and block other bookings for that period.
   const cancelBooking = async (bookingId: number, token: string) => {
     try {
@@ -234,8 +227,6 @@ export default function PaymentPage({
         headers: { Authorization: `Bearer ${token}` },
       });
     } catch (cleanupErr) {
-      // Best-effort cleanup - if this itself fails, don't block the user
-      // from seeing the original error, just log it.
       console.warn(
         "Failed to auto-cancel unpaid booking:",
         cleanupErr instanceof Error ? cleanupErr.message : cleanupErr,
@@ -246,14 +237,6 @@ export default function PaymentPage({
   const onSubmit = async (formData: Form) => {
     setProcessing(true);
     setBookingError("");
-
-    if (!scriptReady || !window.MidtransNew3ds) {
-      setBookingError(
-        "Payment library is still loading. Please wait a moment and try again.",
-      );
-      setProcessing(false);
-      return;
-    }
 
     let bookingId: number | null = null;
     let token: string | null = null;
@@ -272,8 +255,8 @@ export default function PaymentPage({
         return;
       }
 
-      // 1) Create the booking first (status: pending) - only the payment
-      // step below turns it into "confirmed".
+      // 1) Create the booking first (status: pending) - only a confirmed
+      // bank transfer below turns it into "confirmed".
       const res = await fetch(`${API_URL}/api/bookings`, {
         method: "POST",
         headers: {
@@ -300,45 +283,12 @@ export default function PaymentPage({
 
       bookingId = result.data.booking_id;
 
-      // 2) Tokenize the card client-side. Raw card data never touches our
-      // backend - only the resulting token_id does.
-      const [expMonth, expYearShort] = formData.expiryDate.split("/");
-
-      window.MidtransNew3ds.getCardToken(
-        {
-          card_number: formData.cardNumber.replace(/\s/g, ""),
-          card_exp_month: expMonth,
-          card_exp_year: `20${expYearShort}`,
-          card_cvv: formData.cvv,
-        },
-        {
-          onSuccess: (tokenResponse: MidtransCardTokenSuccess) => {
-            chargeWithToken(bookingId as number, tokenResponse.token_id);
-          },
-          onFailure: async (failure: MidtransCardTokenFailure) => {
-            // Tokenization definitively failed - no charge was attempted,
-            // so it's safe to release the floor immediately.
-            await cancelBooking(bookingId as number, token as string);
-            setBookingError(
-              failure.status_message ||
-                "Failed to validate card details. Please check and try again.",
-            );
-            setProcessing(false);
-          },
-        },
-      );
+      // 2) Ask Midtrans (via our backend) to create a bank transfer charge -
+      // this returns a VA number / bill key, no sensitive data is collected.
+      await startBankTransfer(bookingId as number, formData.bank);
     } catch (err) {
-      // NOTE: using console.warn (not console.error) here on purpose -
-      // Next's dev overlay intercepts console.error and can throw its own
-      // secondary "Cannot read properties of null (reading 'getAttribute')"
-      // error while trying to report certain error shapes, which hides the
-      // real message. console.warn bypasses that interceptor.
       console.warn("onSubmit failed:", err instanceof Error ? err.message : err);
 
-      // If the booking was already created but something threw before a
-      // charge was ever attempted (e.g. getCardToken crashing, a network
-      // error), release it - otherwise the floor stays stuck as "pending"
-      // forever even though no payment was ever made.
       if (bookingId && token) {
         await cancelBooking(bookingId, token);
       }
@@ -354,15 +304,6 @@ export default function PaymentPage({
 
   return (
     <div className="min-h-screen bg-white">
-      <Script
-        id="midtrans-script"
-        src={MIDTRANS_3DS_SCRIPT_URL}
-        data-environment={MIDTRANS_IS_PRODUCTION ? "production" : "sandbox"}
-        data-client-key={MIDTRANS_CLIENT_KEY}
-        strategy="afterInteractive"
-        onLoad={() => setScriptReady(true)}
-      />
-
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
         <button
           onClick={() => router.back()}
@@ -415,125 +356,51 @@ export default function PaymentPage({
 
               {/* Payment Details */}
               <h2 className="font-semibold text-[#2B2B2B] mb-3">
-                Payment Details
+                Payment Method
               </h2>
+              <p className="text-xs text-gray-400 mb-3">
+                Choose a bank to generate a Virtual Account (or Mandiri bill
+                key) for your transfer.
+              </p>
 
-              {/* Card type selector */}
-              <div className="flex flex-wrap items-center gap-3 mb-4">
-                <span className="text-xs text-gray-400">Card Type</span>
-                {PAYMENT_LOGOS.map((p) => (
+              {/* Bank selector */}
+              <div className="grid sm:grid-cols-3 gap-3 mb-2">
+                {BANK_OPTIONS.map((b) => (
                   <label
-                    key={p.id}
-                    className={`flex items-center gap-1.5 cursor-pointer border rounded-md px-2 py-1.5 transition-all ${
-                      selectedCard === p.id
+                    key={b.id}
+                    className={`flex items-center gap-2 cursor-pointer border rounded-md px-3 py-2.5 transition-all ${
+                      selectedBank === b.id
                         ? "border-[#C9A36A] bg-amber-50"
                         : "border-gray-200 hover:border-gray-300"
                     }`}
                   >
                     <input
                       type="radio"
-                      name="cardType"
-                      value={p.id}
-                      checked={selectedCard === p.id}
-                      onChange={() => setSelectedCard(p.id)}
+                      value={b.id}
+                      {...register("bank")}
                       className="accent-[#C9A36A] w-3 h-3"
                     />
                     <Image
-                      src={`/payments/${p.file}`}
-                      alt={p.id}
-                      width={48}
-                      height={24}
-                      className="h-6 w-auto object-contain"
+                      src={`/payments/${b.logo}`}
+                      alt={b.id}
+                      width={40}
+                      height={20}
+                      className="h-5 w-auto object-contain"
                     />
+                    <span className="text-xs text-gray-600">{b.label}</span>
                   </label>
                 ))}
               </div>
-
-              <div className="grid sm:grid-cols-2 gap-3">
-                {/* Card Number */}
-                <div className="sm:col-span-2">
-                  <label className="text-xs font-medium text-gray-500 block mb-1">
-                    Card Number
-                  </label>
-                  <input
-                    {...register("cardNumber")}
-                    placeholder="1234 5678 9012 3456"
-                    onChange={(e) =>
-                      setValue("cardNumber", formatCard(e.target.value))
-                    }
-                    className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
-                  />
-                  {errors.cardNumber && (
-                    <p className="text-red-500 text-[10px] mt-0.5">
-                      {errors.cardNumber.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* Cardholder Name */}
-                <div className="sm:col-span-2">
-                  <label className="text-xs font-medium text-gray-500 block mb-1">
-                    Cardholder Name
-                  </label>
-                  <input
-                    {...register("cardholderName")}
-                    placeholder="Name as it appears on card"
-                    className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
-                  />
-                  {errors.cardholderName && (
-                    <p className="text-red-500 text-[10px] mt-0.5">
-                      {errors.cardholderName.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* Expiry Date */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 block mb-1">
-                    Expiry Date (MM/YY)
-                  </label>
-                  <input
-                    {...register("expiryDate")}
-                    placeholder="MM/YY"
-                    onChange={(e) =>
-                      setValue("expiryDate", formatExpiry(e.target.value))
-                    }
-                    className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
-                  />
-                  {errors.expiryDate && (
-                    <p className="text-red-500 text-[10px] mt-0.5">
-                      {errors.expiryDate.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* CVV */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 block mb-1">
-                    CVV / Security Code
-                  </label>
-                  <input
-                    {...register("cvv")}
-                    type="password"
-                    placeholder="3 or 4 digits"
-                    maxLength={4}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/\D/g, "").slice(0, 4);
-                      setValue("cvv", v);
-                    }}
-                    className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
-                  />
-                  {errors.cvv && (
-                    <p className="text-red-500 text-[10px] mt-0.5">
-                      {errors.cvv.message}
-                    </p>
-                  )}
-                </div>
-              </div>
+              {errors.bank && (
+                <p className="text-red-500 text-[10px] mb-3">
+                  {errors.bank.message}
+                </p>
+              )}
 
               <div className="flex items-center gap-1.5 mt-3 text-[11px] text-gray-400">
-                <Lock size={11} /> Secured by Midtrans - your card details never
-                touch our servers
+                <Landmark size={11} /> Secured by Midtrans - you transfer
+                directly from your own bank account, no card details are ever
+                collected
               </div>
 
               {/* Booking error */}
@@ -582,7 +449,7 @@ export default function PaymentPage({
                     />
                   </svg>
                 )}
-                {processing ? "Processing..." : "Pay Now"}
+                {processing ? "Processing..." : "Generate Payment Details"}
               </button>
             </div>
           </motion.div>
@@ -634,8 +501,20 @@ export default function PaymentPage({
         </div>
       </div>
 
-      {/* 3DS authentication modal */}
-      <ThreeDSModal url={threeDsUrl} onClose={() => setThreeDsUrl(null)} />
+      {/* Bank transfer (VA / Mandiri bill key) instructions modal */}
+      <BankTransferModal
+        open={showBankModal}
+        bank={transferBank}
+        vaNumber={vaNumber}
+        billerCode={billerCode}
+        billKey={billKey}
+        expiryTime={expiryTime}
+        amount={total}
+        checking={checkingStatus}
+        errorMessage={statusError}
+        onCheckStatus={() => orderId && checkStatus(orderId)}
+        onClose={() => setShowBankModal(false)}
+      />
 
       {/* Success overlay */}
       <AnimatePresence>
