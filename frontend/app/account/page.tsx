@@ -30,6 +30,18 @@ const statusColor: Record<string, string> = {
   Progressing: "text-blue-500",
   Cancelled: "text-red-500",
   Pending: "text-orange-500",
+  Expired: "text-gray-400",
+};
+
+// Maps a raw Bookings.status value from the API to the label shown in the
+// UI. Any status not listed here (should not normally happen) falls back
+// to "Pending" rather than silently mislabeling it.
+const BOOKING_STATUS_LABEL: Record<string, string> = {
+  confirmed: "Progressing",
+  completed: "Completed",
+  cancelled: "Cancelled",
+  expired: "Expired",
+  pending: "Pending",
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -109,14 +121,7 @@ export default function AccountPage() {
               detail: `Floor ${b.floor_booked}`,
               date: new Date(b.start_date).toLocaleDateString("id-ID"),
               time: new Date(b.end_date).toLocaleDateString("id-ID"),
-              status:
-                b.status === "confirmed"
-                  ? "Progressing"
-                  : b.status === "completed"
-                    ? "Completed"
-                    : b.status === "cancelled"
-                      ? "Cancelled"
-                      : "Pending",
+              status: BOOKING_STATUS_LABEL[b.status] ?? "Pending",
               total: `Rp ${Number(b.total_price).toLocaleString("id-ID")}`,
             }),
           );

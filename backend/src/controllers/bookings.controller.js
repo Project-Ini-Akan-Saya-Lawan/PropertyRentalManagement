@@ -86,7 +86,7 @@ const createBooking = async (req, res) => {
     const endDate = new Date(start_date);
     endDate.setMonth(endDate.getMonth() + Number(months));
 
-    const total_price = Number(price) * Number(months);
+    const total_price = (Number(price) * (Number(months) / 12))+((Number(price) * (Number(months) / 12))/10);
 
     const existingBooking = await pool.query(
       `SELECT booking_id FROM Bookings
