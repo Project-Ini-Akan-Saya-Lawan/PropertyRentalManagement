@@ -1,15 +1,44 @@
 "use client";
 import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { motion, AnimatePresence } from "framer-motion";
-import { Landmark, CheckCircle2, ArrowLeft } from "lucide-react";
-import Image from "next/image";
+import { ArrowLeft, CheckCircle2, Landmark } from "lucide-react";
+import BookingStepper from "@/components/booking/BookingStepper";
 import BankTransferModal from "@/components/booking/BankTransferModal";
-import { paymentService, type BankCode } from "@/services/payment";
+import { getWorkspaceBySlug, apiPackToWorkspace } from "@/data/workspaces";
 import { formatIDR } from "@/lib/utils";
+import Image from "next/image";
+import { paymentService, type BankCode } from "@/services/payment";
+import { Workspace } from "@/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+const SLUG_TO_PACK_ID: Record<string, number> = {
+  "wowo-starter-pack": 1,
+  "wowo-business-pack": 2,
+  "wowo-executive-pack": 3,
+  "wowi-starter-pack": 4,
+  "wowi-business-pack": 5,
+  "wowi-executive-pack": 6,
+};
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 const STATUS_POLL_INTERVAL_MS = 5000;
+
+const schema = z.object({
+  firstName: z.string().min(1, "Required"),
+  surname: z.string().min(1, "Required"),
+  address: z.string().min(1, "Required"),
+  stateCity: z.string().min(1, "Required"),
+  countryRegion: z.string().min(1, "Required"),
+  postcode: z.string().min(3, "Required"),
+  email: z.string().email("Invalid email"),
+  bank: z.enum(["bca", "bri", "mandiri"], {
+    errorMap: () => ({ message: "Please choose a bank" }),
+  }),
+});
+type Form = z.infer<typeof schema>;
 
 const BANK_OPTIONS: { id: BankCode; label: string; logo: string }[] = [
   { id: "bca", label: "BCA Virtual Account", logo: "bca.png" },
@@ -24,61 +53,35 @@ const STATUS_MESSAGES: Record<string, string> = {
   expire: "The payment window expired. Please try again.",
 };
 
-interface BookingData {
-  booking_id: number;
-  pack_id: number;
-  floor_booked: number;
-  start_date: string;
-  end_date: string;
-  total_price: number;
-  status: string;
-}
-
-interface PaymentData {
-  payment_id: number;
-  booking_id: number;
-  order_id: string;
-  status: string;
-  bank: BankCode | null;
-  va_number: string | null;
-  biller_code: string | null;
-  bill_key: string | null;
-  expiry_time: string | null;
-  created_at: string;
-}
-
-// Payment statuses that mean "this VA/bill is still usable, or already
-// paid" - anything in this list should be shown to the user directly
-// instead of letting them generate a brand new charge.
-const REUSABLE_PAYMENT_STATUSES = ["paid", "challenge", "pending"];
-
-function isPaymentStillValid(payment: PaymentData): boolean {
-  if (!REUSABLE_PAYMENT_STATUSES.includes(payment.status)) return false;
-  if (!payment.expiry_time) return true;
-  // Same WIB-offset fix as BankTransferModal's countdown - see comment
-  // there. Midtrans's timestamp has no timezone suffix, so it must be
-  // parsed as WIB (+07:00) explicitly rather than as local time.
-  return (
-    new Date(`${payment.expiry_time.replace(" ", "T")}+07:00`).getTime() >
-    Date.now()
-  );
-}
-
-export default function PayPage({
+export default function PaymentPage({
   params,
 }: {
-  params: Promise<{ bookingId: string }>;
+  params: Promise<{ slug: string }>;
 }) {
-  const { bookingId } = use(params);
+  const { slug } = use(params);
   const router = useRouter();
 
-  const [booking, setBooking] = useState<BookingData | null>(null);
-  const [selectedBank, setSelectedBank] = useState<BankCode | null>(null);
-  const [processing, setProcessing] = useState(false);
-  const [error, setError] = useState("");
+  const [workspace, setWorkspace] = useState<Workspace | null>(
+    getWorkspaceBySlug(slug) || null,
+  );
+  const [loadingWs, setLoadingWs] = useState(!workspace);
+  const [packId, setPackId] = useState<number | null>(
+    SLUG_TO_PACK_ID[slug] || null,
+  );
+
+  const [rentData, setRentData] = useState<{
+    floor?: string;
+    type?: string;
+    date?: string;
+    commitmentTerms?: string;
+    endDate?: string;
+  }>({});
   const [done, setDone] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [bookingError, setBookingError] = useState("");
   const [showBankModal, setShowBankModal] = useState(false);
   const [orderId, setOrderId] = useState<string | null>(null);
+  const [transferBank, setTransferBank] = useState<BankCode | null>(null);
   const [vaNumber, setVaNumber] = useState<string | null>(null);
   const [billerCode, setBillerCode] = useState<string | null>(null);
   const [billKey, setBillKey] = useState<string | null>(null);
@@ -88,62 +91,56 @@ export default function PayPage({
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      router.push("/login");
-      return;
-    }
+    const raw = sessionStorage.getItem(`rent-${slug}`);
+    if (raw) setRentData(JSON.parse(raw));
+  }, [slug]);
 
-    fetch(`${API_URL}/api/bookings/${bookingId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then((result) => {
-        if (!result.data) {
-          setError("Booking not found.");
-          return;
-        }
-        const { payments, ...bookingData } = result.data as BookingData & {
-          payments: PaymentData[];
-        };
-        setBooking(bookingData);
-
-        // Booking ini sudah pernah generate VA sebelumnya dan masih valid
-        // (belum expired) - langsung tampilkan VA yang sama, jangan suruh
-        // user pilih bank & generate baru lagi.
-        const existing = (payments || [])
-          .slice()
-          .sort(
-            (a, b) =>
-              new Date(b.created_at).getTime() -
-              new Date(a.created_at).getTime(),
-          )
-          .find(isPaymentStillValid);
-
-        if (existing) {
-          setSelectedBank(existing.bank);
-          setOrderId(existing.order_id);
-          setVaNumber(existing.va_number);
-          setBillerCode(existing.biller_code);
-          setBillKey(existing.bill_key);
-          setExpiryTime(existing.expiry_time);
-          setShowBankModal(true);
-
-          if (existing.status === "paid") {
-            finishSuccess();
-          } else {
-            pollRef.current = setInterval(() => {
-              checkStatus(existing.order_id, { silent: true });
-            }, STATUS_POLL_INTERVAL_MS);
-          }
-        }
-      })
-      .catch(() => setError("Failed to load booking."));
-
+  useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [bookingId, router]);
+  }, []);
+
+  useEffect(() => {
+    if (workspace) return;
+    fetch(`${API_URL}/api/floor-packs`)
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) {
+          const packIdMatch = slug.match(/^pack-(\d+)$/);
+          const found = packIdMatch
+            ? result.data.find(
+                (p: { pack_id: number }) =>
+                  p.pack_id === Number(packIdMatch[1]),
+              )
+            : result.data.find(
+                (p: { pack_name: string }) =>
+                  p.pack_name.toLowerCase().replace(/\s+/g, "-") === slug,
+              );
+          if (found) {
+            setWorkspace(apiPackToWorkspace(found));
+            setPackId(found.pack_id);
+          }
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoadingWs(false));
+  }, [slug]);
+
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors },
+  } = useForm<Form>({ resolver: zodResolver(schema) });
+  const selectedBank = watch("bank");
+
+  const years = rentData.commitmentTerms
+    ? parseInt(rentData.commitmentTerms) || 1
+    : 1;
+  const yearly = workspace ? workspace.monthlyPrice * years : 0;
+  const tax = workspace ? yearly * workspace.taxRate : 0;
+  const total = yearly + tax;
 
   const stopPolling = () => {
     if (pollRef.current) {
@@ -153,6 +150,8 @@ export default function PayPage({
   };
 
   const finishSuccess = () => {
+    sessionStorage.removeItem(`rent-${slug}`);
+    sessionStorage.removeItem(`confirm-${slug}`);
     stopPolling();
     setShowBankModal(false);
     setProcessing(false);
@@ -164,8 +163,8 @@ export default function PayPage({
     if (!silent) setCheckingStatus(true);
     setStatusError("");
     try {
-      const result = await paymentService.getStatus(id);
-      const status = result.data.status;
+      const statusResult = await paymentService.getStatus(id);
+      const status = statusResult.data.status;
       if (status === "paid") {
         finishSuccess();
         return;
@@ -178,21 +177,19 @@ export default function PayPage({
           STATUS_MESSAGES[status] || "Still waiting for your transfer.",
         );
       }
-    } catch {
-      if (!silent) setStatusError("Could not check status. Please try again.");
+    } catch (err) {
+      if (!silent)
+        setStatusError("Could not check payment status. Please try again.");
     } finally {
       if (!silent) setCheckingStatus(false);
     }
   };
 
-  const handlePay = async () => {
-    if (!selectedBank || !booking) return;
-    setProcessing(true);
-    setError("");
+  const startBankTransfer = async (bookingId: number, bank: BankCode) => {
     try {
       const chargeResult = await paymentService.chargeBankTransfer(
-        booking.booking_id,
-        selectedBank,
+        bookingId,
+        bank,
       );
       const {
         payment,
@@ -203,12 +200,12 @@ export default function PayPage({
         expiry_time,
       } = chargeResult.data;
       setOrderId(payment.order_id);
+      setTransferBank(bank);
       setVaNumber(va_number);
       setBillerCode(biller_code);
       setBillKey(bill_key);
       setExpiryTime(expiry_time);
       setStatusError("");
-      setShowBankModal(true);
       setProcessing(false);
       if (
         transaction_status === "settlement" ||
@@ -217,141 +214,275 @@ export default function PayPage({
         finishSuccess();
         return;
       }
+      setShowBankModal(true);
       pollRef.current = setInterval(() => {
         checkStatus(payment.order_id, { silent: true });
       }, STATUS_POLL_INTERVAL_MS);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to create payment.",
+      setBookingError(
+        err instanceof Error ? err.message : "Failed to create bank transfer.",
       );
       setProcessing(false);
     }
   };
 
-  const total = booking ? Number(booking.total_price) : 0;
+  const cancelBooking = async (bookingId: number, token: string) => {
+    try {
+      await fetch(`${API_URL}/api/bookings/${bookingId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {}
+  };
+
+  const onSubmit = async (formData: Form) => {
+    setProcessing(true);
+    setBookingError("");
+    let bookingId: number | null = null;
+    let token: string | null = null;
+    try {
+      token = localStorage.getItem("token");
+      // Get pack_id: from mapping, from pack-{id} slug, or from loaded pack
+      const resolvedPackId =
+        SLUG_TO_PACK_ID[slug] ||
+        (slug.match(/^pack-(\d+)$/)
+          ? Number(slug.match(/^pack-(\d+)$/)![1])
+          : null) ||
+        packId;
+      const floorNum = parseInt((rentData.floor || "").replace("Floor ", ""));
+      const months = years * 12;
+      if (!token || !resolvedPackId || !rentData.date || !floorNum) {
+        setBookingError(
+          "Missing booking data. Please go back and fill in the details.",
+        );
+        setProcessing(false);
+        return;
+      }
+      const res = await fetch(`${API_URL}/api/bookings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          pack_id: resolvedPackId,
+          floor_booked: floorNum,
+          start_date: rentData.date,
+          months,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        setBookingError(result.message || "Failed to create booking.");
+        setProcessing(false);
+        return;
+      }
+      bookingId = result.data.booking_id;
+      await startBankTransfer(bookingId as number, formData.bank);
+    } catch (err) {
+      if (bookingId && token) await cancelBooking(bookingId, token);
+      setBookingError(
+        err instanceof Error
+          ? `Payment failed: ${err.message}`
+          : "Cannot connect to server.",
+      );
+      setProcessing(false);
+    }
+  };
+
+  if (loadingWs)
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Loading...</p>
+      </div>
+    );
+
+  if (!workspace)
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Package not found.</p>
+      </div>
+    );
 
   return (
     <div className="min-h-screen bg-white">
-      <div className="max-w-lg mx-auto px-4 py-10">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
         <button
-          onClick={() => router.push("/account")}
+          onClick={() => router.back()}
           className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-700 mb-6 transition-colors"
         >
-          <ArrowLeft size={13} /> Back to Account
+          <ArrowLeft size={13} /> Back
         </button>
-
-        <h1 className="font-serif text-2xl font-bold text-[#C9A36A] mb-2">
-          Complete Payment
+        <h1 className="font-serif text-2xl font-bold text-[#C9A36A] mb-6">
+          Rent Details
         </h1>
-        <p className="text-sm text-gray-500 mb-6">Booking #{bookingId}</p>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-4">
-            <p className="text-red-600 text-xs font-semibold">{error}</p>
-          </div>
-        )}
-
-        {booking && (
-          <div className="bg-[#F5F0E8]/50 rounded-xl p-4 mb-6 space-y-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-gray-500">Pack ID</span>
-              <span className="font-semibold text-[#2B2B2B]">
-                {booking.pack_id}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Floor</span>
-              <span className="font-semibold text-[#2B2B2B]">
-                {booking.floor_booked}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Start Date</span>
-              <span className="font-semibold text-[#2B2B2B]">
-                {new Date(booking.start_date).toLocaleDateString("id-ID")}
-              </span>
-            </div>
-            <div className="flex justify-between border-t border-[#C9A36A]/20 pt-2 mt-2">
-              <span className="font-bold text-[#C9A36A]">Total</span>
-              <span className="font-bold text-[#C9A36A]">
-                {formatIDR(total)}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Bank selector */}
-        <h2 className="font-semibold text-sm text-[#2B2B2B] mb-3">
-          Choose Payment Method
-        </h2>
-        <div className="space-y-2 mb-6">
-          {BANK_OPTIONS.map((b) => (
-            <button
-              key={b.id}
-              onClick={() => setSelectedBank(b.id)}
-              className={`w-full flex items-center gap-3 border rounded-xl px-4 py-3 transition-all ${
-                selectedBank === b.id
-                  ? "border-[#C9A36A] bg-amber-50"
-                  : "border-gray-200 hover:border-gray-300"
-              }`}
-            >
-              <div
-                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${selectedBank === b.id ? "border-[#C9A36A]" : "border-gray-300"}`}
-              >
-                {selectedBank === b.id && (
-                  <div className="w-2 h-2 rounded-full bg-[#C9A36A]" />
-                )}
+        <BookingStepper step={3} />
+        <div className="grid lg:grid-cols-3 gap-8">
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="lg:col-span-2 space-y-6"
+          >
+            <form onSubmit={handleSubmit(onSubmit)} id="pay-form">
+              <h2 className="font-semibold text-[#2B2B2B] mb-4">
+                Billing Information
+              </h2>
+              <div className="grid sm:grid-cols-2 gap-3 mb-6">
+                {[
+                  { name: "firstName", placeholder: "First Name" },
+                  { name: "surname", placeholder: "Surname" },
+                  { name: "address", placeholder: "Address", span: true },
+                  { name: "stateCity", placeholder: "State / City" },
+                  { name: "countryRegion", placeholder: "Country / Region" },
+                  { name: "postcode", placeholder: "Postcode" },
+                  { name: "email", placeholder: "Email Address", span: true },
+                ].map(({ name, placeholder, span }) => (
+                  <div key={name} className={span ? "sm:col-span-2" : ""}>
+                    <input
+                      {...register(name as keyof Form)}
+                      placeholder={placeholder}
+                      className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
+                    />
+                    {errors[name as keyof Form] && (
+                      <p className="text-red-500 text-[10px] mt-0.5">
+                        {errors[name as keyof Form]?.message}
+                      </p>
+                    )}
+                  </div>
+                ))}
               </div>
-              <Image
-                src={`/payments/${b.logo}`}
-                alt={b.id}
-                width={40}
-                height={20}
-                className="h-6 w-auto object-contain"
-              />
-              <span className="text-sm text-gray-700">{b.label}</span>
-            </button>
-          ))}
+              <h2 className="font-semibold text-[#2B2B2B] mb-3">
+                Payment Method
+              </h2>
+              <p className="text-xs text-gray-400 mb-3">
+                Choose a bank to generate a Virtual Account for your transfer.
+              </p>
+              <div className="grid sm:grid-cols-3 gap-3 mb-2">
+                {BANK_OPTIONS.map((b) => (
+                  <label
+                    key={b.id}
+                    className={`flex items-center gap-2 cursor-pointer border rounded-md px-3 py-2.5 transition-all ${selectedBank === b.id ? "border-[#C9A36A] bg-amber-50" : "border-gray-200 hover:border-gray-300"}`}
+                  >
+                    <input
+                      type="radio"
+                      value={b.id}
+                      {...register("bank")}
+                      className="accent-[#C9A36A] w-3 h-3"
+                    />
+                    <Image
+                      src={`/payments/${b.logo}`}
+                      alt={b.id}
+                      width={40}
+                      height={20}
+                      className="h-5 w-auto object-contain"
+                    />
+                    <span className="text-xs text-gray-600">{b.label}</span>
+                  </label>
+                ))}
+              </div>
+              {errors.bank && (
+                <p className="text-red-500 text-[10px] mb-3">
+                  {errors.bank.message}
+                </p>
+              )}
+              <div className="flex items-center gap-1.5 mt-3 text-[11px] text-gray-400">
+                <Landmark size={11} /> Secured by Midtrans
+              </div>
+              {bookingError && (
+                <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
+                  <p className="text-red-600 text-xs font-semibold">
+                    {bookingError}
+                  </p>
+                </div>
+              )}
+            </form>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => router.back()}
+                className="border border-gray-200 text-gray-500 font-semibold text-sm px-6 py-2.5 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                Back
+              </button>
+              <button
+                type="submit"
+                form="pay-form"
+                disabled={processing}
+                className="bg-[#C9A36A] hover:bg-[#A8834A] disabled:opacity-60 text-white font-semibold text-sm px-8 py-2.5 rounded-md transition-colors flex items-center gap-2"
+              >
+                {processing && (
+                  <svg
+                    className="animate-spin h-3.5 w-3.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                )}
+                {processing ? "Processing..." : "Generate Payment Details"}
+              </button>
+            </div>
+          </motion.div>
+          <div>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 sticky top-24">
+              <h4 className="text-xs font-bold text-[#2B2B2B] uppercase tracking-wider mb-4">
+                Your Order
+              </h4>
+              <div className="space-y-2 text-xs text-gray-500 mb-4">
+                <div className="flex justify-between">
+                  <span>Package</span>
+                  <span className="font-medium text-[#2B2B2B]">
+                    {workspace.name}
+                  </span>
+                </div>
+                {rentData.commitmentTerms && (
+                  <div className="flex justify-between">
+                    <span>Commitment</span>
+                    <span className="font-medium text-[#2B2B2B]">
+                      {rentData.commitmentTerms}
+                    </span>
+                  </div>
+                )}
+                {rentData.floor && (
+                  <div className="flex justify-between">
+                    <span>Floor</span>
+                    <span className="font-medium text-[#2B2B2B]">
+                      {rentData.floor}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span>Annual Fee</span>
+                  <span>{formatIDR(yearly)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Tax + VAT (11%)</span>
+                  <span>{formatIDR(tax)}</span>
+                </div>
+              </div>
+              <div className="flex justify-between font-bold text-[#C9A36A] pt-3 border-t border-gray-100">
+                <span className="text-xs">Total Amount</span>
+                <span className="text-sm">{formatIDR(total)}</span>
+              </div>
+            </div>
+          </div>
         </div>
-
-        <div className="flex items-center gap-1.5 text-[11px] text-gray-400 mb-6">
-          <Landmark size={11} /> Secured by Midtrans — transfer directly from
-          your bank, no card details collected
-        </div>
-
-        <button
-          onClick={handlePay}
-          disabled={!selectedBank || processing || !booking}
-          className="w-full bg-[#C9A36A] hover:bg-[#A8834A] disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
-        >
-          {processing && (
-            <svg
-              className="animate-spin h-4 w-4"
-              viewBox="0 0 24 24"
-              fill="none"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              />
-            </svg>
-          )}
-          {processing ? "Processing..." : "Generate Payment Details"}
-        </button>
       </div>
-
       <BankTransferModal
         open={showBankModal}
-        bank={selectedBank}
+        bank={transferBank}
         vaNumber={vaNumber}
         billerCode={billerCode}
         billKey={billKey}
@@ -362,7 +493,6 @@ export default function PayPage({
         onCheckStatus={() => orderId && checkStatus(orderId)}
         onClose={() => setShowBankModal(false)}
       />
-
       <AnimatePresence>
         {done && (
           <motion.div
@@ -380,10 +510,10 @@ export default function PayPage({
                 <CheckCircle2 size={36} className="text-green-600" />
               </div>
               <h2 className="font-serif text-xl font-bold text-[#2B2B2B] mb-2">
-                Payment Successful!
+                Booking Confirmed!
               </h2>
               <p className="text-sm text-gray-500">
-                Your booking has been confirmed. Redirecting to your account…
+                Redirecting to your account…
               </p>
             </motion.div>
           </motion.div>

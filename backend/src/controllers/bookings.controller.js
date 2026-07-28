@@ -4,6 +4,7 @@ const {
   expireStaleBookings,
   BOOKING_EXPIRY_MS,
 } = require("../utils/bookingExpiry");
+const { formatExpiryTimeForClient } = require("../utils/formatExpiryTime");
 
 const getMyBookings = async (req, res) => {
   const userId = req.user.user_id;
@@ -34,9 +35,18 @@ const getBookingById = async (req, res) => {
       "SELECT * FROM Payments WHERE booking_id = $1",
       [id],
     );
+    // node-pg returns the Expiry_time TIMESTAMP column as a Date object,
+    // which JSON-serializes as an ISO "...Z" string - not the raw
+    // "yyyy-MM-dd HH:mm:ss" (WIB, no offset) format the frontend's
+    // countdown expects. Convert it back before sending, or the countdown
+    // parses an invalid date and renders "NaN:NaN:NaN".
+    const paymentsForClient = payments.rows.map((payment) => ({
+      ...payment,
+      expiry_time: formatExpiryTimeForClient(payment.expiry_time),
+    }));
     res
       .status(200)
-      .json({ data: { ...booking.rows[0], payments: payments.rows } });
+      .json({ data: { ...booking.rows[0], payments: paymentsForClient } });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Internal server error." });

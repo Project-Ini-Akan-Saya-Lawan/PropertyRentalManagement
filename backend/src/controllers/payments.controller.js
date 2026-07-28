@@ -2,6 +2,7 @@
 const pool = require("../../db");
 const { coreApi } = require("../config/midtrans");
 const { mapMidtransStatus } = require("../utils/midtransStatus");
+const { formatExpiryTimeForClient } = require("../utils/formatExpiryTime");
 
 const PAYABLE_BOOKING_STATUSES = ["pending"];
 const VA_BANKS = ["bca", "bni", "bri", "permata"];
@@ -128,7 +129,7 @@ const chargeBankTransferPayment = async (req, res) => {
           va_number: existing.va_number,
           biller_code: existing.biller_code,
           bill_key: existing.bill_key,
-          expiry_time: existing.expiry_time,
+          expiry_time: formatExpiryTimeForClient(existing.expiry_time),
         },
       });
     }
@@ -357,7 +358,12 @@ const getPaymentStatus = async (req, res) => {
       paymentStatus,
     );
 
-    return res.status(200).json({ data: updated.rows[0] });
+    return res.status(200).json({
+      data: {
+        ...updated.rows[0],
+        expiry_time: formatExpiryTimeForClient(updated.rows[0].expiry_time),
+      },
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Internal server error." });
@@ -468,9 +474,13 @@ const cancelPayment = async (req, res) => {
       paymentResult.rows[0].booking_id,
     ]);
 
-    return res
-      .status(200)
-      .json({ message: "Payment cancelled.", data: updated.rows[0] });
+    return res.status(200).json({
+      message: "Payment cancelled.",
+      data: {
+        ...updated.rows[0],
+        expiry_time: formatExpiryTimeForClient(updated.rows[0].expiry_time),
+      },
+    });
   } catch (error) {
     console.error(error);
     const apiMessage =
