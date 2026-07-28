@@ -34,6 +34,36 @@ interface BookingData {
   status: string;
 }
 
+interface PaymentData {
+  payment_id: number;
+  booking_id: number;
+  order_id: string;
+  status: string;
+  bank: BankCode | null;
+  va_number: string | null;
+  biller_code: string | null;
+  bill_key: string | null;
+  expiry_time: string | null;
+  created_at: string;
+}
+
+// Payment statuses that mean "this VA/bill is still usable, or already
+// paid" - anything in this list should be shown to the user directly
+// instead of letting them generate a brand new charge.
+const REUSABLE_PAYMENT_STATUSES = ["paid", "challenge", "pending"];
+
+function isPaymentStillValid(payment: PaymentData): boolean {
+  if (!REUSABLE_PAYMENT_STATUSES.includes(payment.status)) return false;
+  if (!payment.expiry_time) return true;
+  // Same WIB-offset fix as BankTransferModal's countdown - see comment
+  // there. Midtrans's timestamp has no timezone suffix, so it must be
+  // parsed as WIB (+07:00) explicitly rather than as local time.
+  return (
+    new Date(`${payment.expiry_time.replace(" ", "T")}+07:00`).getTime() >
+    Date.now()
+  );
+}
+
 export default function PayPage({
   params,
 }: {
@@ -64,17 +94,48 @@ export default function PayPage({
       return;
     }
 
-    fetch(`${API_URL}/api/bookings`, {
+    fetch(`${API_URL}/api/bookings/${bookingId}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
       .then((result) => {
-        if (result.data) {
-          const found = result.data.find(
-            (b: BookingData) => String(b.booking_id) === bookingId,
-          );
-          if (found) setBooking(found);
-          else setError("Booking not found.");
+        if (!result.data) {
+          setError("Booking not found.");
+          return;
+        }
+        const { payments, ...bookingData } = result.data as BookingData & {
+          payments: PaymentData[];
+        };
+        setBooking(bookingData);
+
+        // Booking ini sudah pernah generate VA sebelumnya dan masih valid
+        // (belum expired) - langsung tampilkan VA yang sama, jangan suruh
+        // user pilih bank & generate baru lagi.
+        const existing = (payments || [])
+          .slice()
+          .sort(
+            (a, b) =>
+              new Date(b.created_at).getTime() -
+              new Date(a.created_at).getTime(),
+          )
+          .find(isPaymentStillValid);
+
+        if (existing) {
+          setSelectedBank(existing.bank);
+          setOrderId(existing.order_id);
+          setVaNumber(existing.va_number);
+          setBillerCode(existing.biller_code);
+          setBillKey(existing.bill_key);
+          setExpiryTime(existing.expiry_time);
+          setShowBankModal(true);
+
+          if (existing.status === "paid") {
+            finishSuccess();
+          } else {
+            pollRef.current = setInterval(() => {
+              checkStatus(existing.order_id, { silent: true });
+            }, STATUS_POLL_INTERVAL_MS);
+          }
         }
       })
       .catch(() => setError("Failed to load booking."));
