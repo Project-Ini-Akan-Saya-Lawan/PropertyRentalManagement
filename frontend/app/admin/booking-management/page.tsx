@@ -3,7 +3,6 @@ import { useState, useEffect } from "react";
 import {
   Search,
   Download,
-  Calendar,
   CheckCircle,
   XCircle,
   Clock,
@@ -23,15 +22,6 @@ interface Booking {
   status: "Approved" | "Pending" | "Cancelled";
   total: string;
   rawStatus: string;
-}
-
-interface NextCheckIn {
-  name: string;
-  initials: string;
-  property: string;
-  date: string;
-  time: string;
-  notes?: string;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -117,9 +107,8 @@ export default function BookingManagementPage() {
   >(null);
   const [selected, setSelected] = useState<Booking | null>(null);
   const [actionNote, setActionNote] = useState("");
-  const [checkIns, setCheckIns] = useState<NextCheckIn[]>([]);
   const [loading, setLoading] = useState(true);
-  const PER_PAGE = 4;
+  const PER_PAGE = 5;
 
   const fetchBookings = () => {
     const token = localStorage.getItem("token");
@@ -202,20 +191,19 @@ export default function BookingManagementPage() {
     const mf = filter === "All" || b.status === filter;
     return ms && mf;
   });
-
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   const stats = [
     {
-      label: "Pending Requests",
+      label: "Pending",
       value: bookings.filter((b) => b.status === "Pending").length,
       icon: Clock,
       bg: "bg-orange-50",
       color: "text-orange-600",
     },
     {
-      label: "Approved Bookings",
+      label: "Approved",
       value: bookings.filter((b) => b.status === "Approved").length,
       icon: CheckCircle,
       bg: "bg-green-50",
@@ -233,57 +221,53 @@ export default function BookingManagementPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
         <div>
           <h1
-            className="text-2xl font-bold text-[#2B2B2B]"
+            className="text-xl sm:text-2xl font-bold text-[#2B2B2B]"
             style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
           >
             Booking Management
           </h1>
-          <p className="text-xs font-medium text-[#2B2B2B]/50 mt-0.5">
+          <p className="text-xs font-medium text-[#2B2B2B]/50 mt-0.5 hidden sm:block">
             Manage and review all booking requests
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search
-              size={13}
-              className="absolute left-3 top-2.5 text-[#2B2B2B]/40"
-            />
-            <input
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Search booking ID, tenant or property..."
-              className="pl-8 pr-4 py-2 text-xs border-2 border-[#C9A36A]/30 rounded-lg focus:border-[#C9A36A] outline-none w-64 text-[#2B2B2B]"
-            />
-          </div>
+        <div className="relative">
+          <Search
+            size={13}
+            className="absolute left-3 top-2.5 text-[#2B2B2B]/40"
+          />
+          <input
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search booking, tenant..."
+            className="pl-8 pr-4 py-2 text-xs border-2 border-[#C9A36A]/30 rounded-lg focus:border-[#C9A36A] outline-none w-full sm:w-56 text-[#2B2B2B]"
+          />
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-5">
         {stats.map((s) => {
           const Icon = s.icon;
           return (
             <div
               key={s.label}
-              className="bg-white border-2 border-[#C9A36A]/30 rounded-xl p-4 hover:shadow-md hover:shadow-[#C9A36A]/10 transition-all"
+              className="bg-white border-2 border-[#C9A36A]/30 rounded-xl p-3 sm:p-4"
             >
-              <div className="flex items-center justify-between mb-2">
-                <div
-                  className={`w-9 h-9 rounded-lg ${s.bg} flex items-center justify-center`}
-                >
-                  <Icon size={16} className={s.color} />
-                </div>
+              <div
+                className={`w-8 h-8 rounded-lg ${s.bg} flex items-center justify-center mb-2`}
+              >
+                <Icon size={15} className={s.color} />
               </div>
-              <p className="text-[10px] font-semibold text-[#2B2B2B]/50 uppercase tracking-wider">
+              <p className="text-[9px] sm:text-[10px] font-semibold text-[#2B2B2B]/50 uppercase tracking-wider">
                 {s.label}
               </p>
-              <p className="text-3xl font-bold text-[#2B2B2B] mt-0.5">
+              <p className="text-2xl sm:text-3xl font-bold text-[#2B2B2B] mt-0.5">
                 {s.value}
               </p>
             </div>
@@ -291,253 +275,194 @@ export default function BookingManagementPage() {
         })}
       </div>
 
-      {/* Main grid */}
-      <div className="grid md:grid-cols-3 gap-4">
-        <div className="md:col-span-2">
-          <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#C9A36A]/10">
-              <h2 className="text-sm font-bold text-[#2B2B2B]">
-                Recent Bookings
-              </h2>
-              <div className="flex items-center gap-2">
-                <div className="flex gap-1">
-                  {["All", "Approved", "Pending", "Cancelled"].map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => {
-                        setFilter(f);
-                        setPage(1);
-                      }}
-                      className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-colors ${filter === f ? "bg-[#C9A36A] text-white" : "text-[#2B2B2B]/50 hover:bg-[#C9A36A]/10"}`}
-                    >
-                      {f}
-                    </button>
-                  ))}
-                </div>
-                <button className="p-1.5 border-2 border-[#C9A36A]/30 rounded-lg hover:border-[#C9A36A] transition-colors">
-                  <Download size={13} className="text-[#C9A36A]" />
-                </button>
-              </div>
-            </div>
-
-            <table className="w-full">
-              <thead className="bg-[#F5F0E8]/50">
-                <tr>
-                  {[
-                    "Booking ID",
-                    "Tenant",
-                    "Property",
-                    "Period",
-                    "Status",
-                    "Actions",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left text-[9px] font-bold text-[#2B2B2B]/50 uppercase tracking-wider px-4 py-2.5"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="py-12 text-center text-sm text-[#2B2B2B]/30"
-                    >
-                      Loading bookings...
-                    </td>
-                  </tr>
-                ) : paginated.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="py-12 text-center text-sm text-[#2B2B2B]/30"
-                    >
-                      No bookings found
-                    </td>
-                  </tr>
-                ) : (
-                  paginated.map((b) => (
-                    <tr
-                      key={b.id}
-                      className="border-t border-[#C9A36A]/10 hover:bg-[#F5F0E8]/30 transition-colors"
-                    >
-                      <td className="px-4 py-3">
-                        <span className="text-xs font-bold text-[#C9A36A]">
-                          #{b.bookingId}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-[#C9A36A]/20 flex items-center justify-center flex-shrink-0">
-                            <span className="text-[9px] font-bold text-[#C9A36A]">
-                              {b.tenantInitials}
-                            </span>
-                          </div>
-                          <span className="text-xs font-semibold text-[#2B2B2B]">
-                            {b.tenantName}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-xs text-[#2B2B2B]/70 max-w-[100px] block truncate">
-                          {b.property}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-[10px] text-[#2B2B2B]/60">
-                          {b.period}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={b.status} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => {
-                              setSelected(b);
-                              setModal("view");
-                            }}
-                            className="p-1.5 hover:bg-[#C9A36A]/10 rounded-lg transition-colors"
-                            title="View"
-                          >
-                            <Eye size={13} className="text-[#C9A36A]" />
-                          </button>
-                          {b.status !== "Approved" && (
-                            <button
-                              onClick={() => {
-                                setSelected(b);
-                                setModal("approve");
-                              }}
-                              className="p-1.5 hover:bg-green-50 rounded-lg transition-colors"
-                              title="Approve"
-                            >
-                              <CheckCircle
-                                size={13}
-                                className="text-green-500"
-                              />
-                            </button>
-                          )}
-                          {b.status !== "Pending" && (
-                            <button
-                              onClick={() => {
-                                setSelected(b);
-                                setModal("pending");
-                              }}
-                              className="p-1.5 hover:bg-orange-50 rounded-lg transition-colors"
-                              title="Set Pending"
-                            >
-                              <Clock size={13} className="text-orange-500" />
-                            </button>
-                          )}
-                          {b.status !== "Cancelled" && (
-                            <button
-                              onClick={() => {
-                                setSelected(b);
-                                setModal("cancel");
-                              }}
-                              className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Cancel"
-                            >
-                              <XCircle size={13} className="text-red-400" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-
-            <div className="flex items-center justify-between px-4 py-3 border-t border-[#C9A36A]/10 bg-[#F5F0E8]/20">
-              <p className="text-[11px] text-[#2B2B2B]/50">
-                Showing{" "}
-                {filtered.length === 0
-                  ? 0
-                  : Math.min((page - 1) * PER_PAGE + 1, filtered.length)}
-                –{Math.min(page * PER_PAGE, filtered.length)} of{" "}
-                {filtered.length} bookings
-              </p>
-              <div className="flex items-center gap-1">
+      {/* Table — full width, no right column */}
+      <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-[#C9A36A]/10">
+          <h2 className="text-sm font-bold text-[#2B2B2B]">Recent Bookings</h2>
+          <div className="flex items-center gap-1.5">
+            <div className="flex gap-1">
+              {["All", "Approved", "Pending", "Cancelled"].map((f) => (
                 <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="p-1.5 border-2 border-[#C9A36A]/30 rounded-lg hover:border-[#C9A36A] disabled:opacity-30 transition-colors"
+                  key={f}
+                  onClick={() => {
+                    setFilter(f);
+                    setPage(1);
+                  }}
+                  className={`px-2 sm:px-2.5 py-1 text-[10px] font-bold rounded-lg transition-colors ${filter === f ? "bg-[#C9A36A] text-white" : "text-[#2B2B2B]/50 hover:bg-[#C9A36A]/10"}`}
                 >
-                  <ChevronLeft size={12} className="text-[#C9A36A]" />
+                  {f}
                 </button>
-                {Array.from({ length: totalPages }, (_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setPage(i + 1)}
-                    className={`w-7 h-7 text-[11px] font-bold rounded-lg transition-colors ${page === i + 1 ? "bg-[#C9A36A] text-white" : "border-2 border-[#C9A36A]/30 text-[#2B2B2B] hover:border-[#C9A36A]"}`}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="p-1.5 border-2 border-[#C9A36A]/30 rounded-lg hover:border-[#C9A36A] disabled:opacity-30 transition-colors"
-                >
-                  <ChevronRight size={12} className="text-[#C9A36A]" />
-                </button>
-              </div>
+              ))}
             </div>
+            <button className="p-1.5 border-2 border-[#C9A36A]/30 rounded-lg hover:border-[#C9A36A] transition-colors">
+              <Download size={13} className="text-[#C9A36A]" />
+            </button>
           </div>
         </div>
 
-        {/* Right col - Next Check-ins */}
-        <div className="flex flex-col gap-4">
-          <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-bold text-[#2B2B2B]">
-                Next Check-ins
-              </h2>
-              <Calendar size={15} className="text-[#C9A36A]" />
-            </div>
-            <div className="space-y-4">
-              {checkIns.length === 0 ? (
-                <div className="py-6 text-center text-xs text-[#2B2B2B]/40">
-                  No upcoming check-ins
-                </div>
-              ) : (
-                checkIns.map((c, i) => (
-                  <div
-                    key={i}
-                    className={`pb-4 ${i < checkIns.length - 1 ? "border-b border-[#C9A36A]/10" : ""}`}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[550px]">
+            <thead className="bg-[#F5F0E8]/50">
+              <tr>
+                {[
+                  "Booking ID",
+                  "Tenant",
+                  "Property",
+                  "Period",
+                  "Status",
+                  "Actions",
+                ].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left text-[9px] font-bold text-[#2B2B2B]/50 uppercase tracking-wider px-3 sm:px-4 py-2.5"
                   >
-                    <div className="flex items-center gap-2.5 mb-1.5">
-                      <div className="w-8 h-8 rounded-full bg-[#C9A36A]/20 flex items-center justify-center flex-shrink-0">
-                        <span className="text-[10px] font-bold text-[#C9A36A]">
-                          {c.initials}
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="py-12 text-center text-sm text-[#2B2B2B]/30"
+                  >
+                    Loading bookings...
+                  </td>
+                </tr>
+              ) : paginated.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="py-12 text-center text-sm text-[#2B2B2B]/30"
+                  >
+                    No bookings found
+                  </td>
+                </tr>
+              ) : (
+                paginated.map((b) => (
+                  <tr
+                    key={b.id}
+                    className="border-t border-[#C9A36A]/10 hover:bg-[#F5F0E8]/30 transition-colors"
+                  >
+                    <td className="px-3 sm:px-4 py-3">
+                      <span className="text-xs font-bold text-[#C9A36A]">
+                        #{b.bookingId}
+                      </span>
+                    </td>
+                    <td className="px-3 sm:px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-[#C9A36A]/20 flex items-center justify-center flex-shrink-0">
+                          <span className="text-[9px] font-bold text-[#C9A36A]">
+                            {b.tenantInitials}
+                          </span>
+                        </div>
+                        <span className="text-xs font-semibold text-[#2B2B2B] truncate max-w-[80px]">
+                          {b.tenantName}
                         </span>
                       </div>
-                      <div>
-                        <p className="text-xs font-bold text-[#2B2B2B]">
-                          {c.name}
-                        </p>
-                        <p className="text-[10px] text-[#2B2B2B]/50">
-                          {c.property} • {c.date} • {c.time}
-                        </p>
+                    </td>
+                    <td className="px-3 sm:px-4 py-3">
+                      <span className="text-xs text-[#2B2B2B]/70 max-w-[90px] block truncate">
+                        {b.property}
+                      </span>
+                    </td>
+                    <td className="px-3 sm:px-4 py-3">
+                      <span className="text-[10px] text-[#2B2B2B]/60 whitespace-nowrap">
+                        {b.period}
+                      </span>
+                    </td>
+                    <td className="px-3 sm:px-4 py-3">
+                      <StatusBadge status={b.status} />
+                    </td>
+                    <td className="px-3 sm:px-4 py-3">
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          onClick={() => {
+                            setSelected(b);
+                            setModal("view");
+                          }}
+                          className="p-1.5 hover:bg-[#C9A36A]/10 rounded-lg transition-colors"
+                          title="View"
+                        >
+                          <Eye size={13} className="text-[#C9A36A]" />
+                        </button>
+                        {b.status !== "Approved" && (
+                          <button
+                            onClick={() => {
+                              setSelected(b);
+                              setModal("approve");
+                            }}
+                            className="p-1.5 hover:bg-green-50 rounded-lg transition-colors"
+                            title="Approve"
+                          >
+                            <CheckCircle size={13} className="text-green-500" />
+                          </button>
+                        )}
+                        {b.status !== "Pending" && (
+                          <button
+                            onClick={() => {
+                              setSelected(b);
+                              setModal("pending");
+                            }}
+                            className="p-1.5 hover:bg-orange-50 rounded-lg transition-colors"
+                            title="Set Pending"
+                          >
+                            <Clock size={13} className="text-orange-500" />
+                          </button>
+                        )}
+                        {b.status !== "Cancelled" && (
+                          <button
+                            onClick={() => {
+                              setSelected(b);
+                              setModal("cancel");
+                            }}
+                            className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Cancel"
+                          >
+                            <XCircle size={13} className="text-red-400" />
+                          </button>
+                        )}
                       </div>
-                    </div>
-                    {c.notes && (
-                      <p className="text-[10px] text-[#2B2B2B]/50 italic ml-10 bg-[#F5F0E8] px-2.5 py-1.5 rounded-lg">
-                        &quot;{c.notes}&quot;
-                      </p>
-                    )}
-                  </div>
+                    </td>
+                  </tr>
                 ))
               )}
-            </div>
-            <button className="w-full mt-2 text-xs font-bold text-[#C9A36A] border-2 border-[#C9A36A]/30 hover:bg-[#C9A36A]/5 py-2 rounded-xl transition-colors">
-              View Full Schedule →
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center justify-between px-4 py-3 border-t border-[#C9A36A]/10 bg-[#F5F0E8]/20">
+          <p className="text-[11px] text-[#2B2B2B]/50">
+            {filtered.length === 0
+              ? 0
+              : Math.min((page - 1) * PER_PAGE + 1, filtered.length)}
+            –{Math.min(page * PER_PAGE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="p-1.5 border-2 border-[#C9A36A]/30 rounded-lg hover:border-[#C9A36A] disabled:opacity-30 transition-colors"
+            >
+              <ChevronLeft size={12} className="text-[#C9A36A]" />
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => (
+              <button
+                key={i}
+                onClick={() => setPage(i + 1)}
+                className={`w-7 h-7 text-[11px] font-bold rounded-lg transition-colors ${page === i + 1 ? "bg-[#C9A36A] text-white" : "border-2 border-[#C9A36A]/30 text-[#2B2B2B] hover:border-[#C9A36A]"}`}
+              >
+                {i + 1}
+              </button>
+            ))}
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="p-1.5 border-2 border-[#C9A36A]/30 rounded-lg hover:border-[#C9A36A] disabled:opacity-30 transition-colors"
+            >
+              <ChevronRight size={12} className="text-[#C9A36A]" />
             </button>
           </div>
         </div>
@@ -562,7 +487,7 @@ export default function BookingManagementPage() {
                 <span className="text-xs font-semibold text-[#2B2B2B]/50">
                   {label}
                 </span>
-                <span className="text-xs font-bold text-[#2B2B2B]">
+                <span className="text-xs font-bold text-[#2B2B2B] text-right max-w-[60%]">
                   {value}
                 </span>
               </div>
@@ -618,7 +543,7 @@ export default function BookingManagementPage() {
             <textarea
               value={actionNote}
               onChange={(e) => setActionNote(e.target.value)}
-              placeholder="Add a note for the tenant..."
+              placeholder="Add a note..."
               rows={3}
               className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none resize-none"
             />
@@ -661,7 +586,7 @@ export default function BookingManagementPage() {
             <textarea
               value={actionNote}
               onChange={(e) => setActionNote(e.target.value)}
-              placeholder="Reason for pending status..."
+              placeholder="Reason..."
               rows={3}
               className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none resize-none"
             />
@@ -704,7 +629,7 @@ export default function BookingManagementPage() {
             <textarea
               value={actionNote}
               onChange={(e) => setActionNote(e.target.value)}
-              placeholder="Provide a reason for cancellation..."
+              placeholder="Provide a reason..."
               rows={3}
               className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none resize-none"
             />

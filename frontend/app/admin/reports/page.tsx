@@ -1,5 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import {
   Download,
   Building2,
@@ -319,8 +321,101 @@ export default function ReportsPage() {
   const wowoRate = stats.totalUnits ? Math.round((wowoBooked / 3) * 100) : 0;
   const wowiRate = stats.totalUnits ? Math.round((wowiBooked / 3) * 100) : 0;
 
+  const getReportData = () => {
+    const tabName = TABS[tab];
+    let headers: string[] = [];
+    let rows: string[][] = [];
+
+    if (tab === 0) {
+      headers = ["Metric", "Value"];
+      rows = [
+        ["Revenue This Month", stats.revenueThisMonth || "—"],
+        ["Revenue Last Month", stats.revenueLastMonth || "—"],
+        ["Revenue Growth", stats.revenueGrowth || "—"],
+        ["Annual Yield", stats.annualYield || "—"],
+        ["Wowo Tower Confirmed Bookings", String(wowoBooked)],
+        ["Wowi Tower Confirmed Bookings", String(wowiBooked)],
+        ["Wowo Occupancy Rate", `${wowoRate}%`],
+        ["Wowi Occupancy Rate", `${wowiRate}%`],
+      ];
+    } else if (tab === 1) {
+      headers = ["Metric", "Value"];
+      rows = [
+        ["Total Units", String(stats.totalUnits ?? "—")],
+        ["Occupied Units", String(stats.occupiedUnits ?? "—")],
+        [
+          "Available Units",
+          String((stats.totalUnits ?? 0) - (stats.occupiedUnits ?? 0)),
+        ],
+        ["Overall Occupancy Rate", stats.occupancyRate || "—"],
+        ["Wowo Tower Rate", `${wowoRate}%`],
+        ["Wowi Tower Rate", `${wowiRate}%`],
+      ];
+    } else if (tab === 2) {
+      headers = ["Month", "Bookings"];
+      rows = monthLabels.map((m, i) => [m, String(bookingByMonth[i])]);
+      rows.push(["", ""]);
+      rows.push(["Status", "Count"]);
+      rows.push(["Confirmed", String(confirmed)]);
+      rows.push(["Pending", String(pending)]);
+      rows.push(["Cancelled", String(cancelled)]);
+      rows.push(["Completed", String(completed)]);
+    } else {
+      headers = ["Metric", "Value"];
+      rows = [
+        ["Total Tenants", String(stats.totalTenants ?? "—")],
+        ["New This Month", String(stats.newThisMonth ?? "—")],
+        ["Wowo Tower Bookings", String(wowoBooked)],
+        ["Wowi Tower Bookings", String(wowiBooked)],
+      ];
+    }
+    return { tabName, headers, rows };
+  };
+
   const handleExport = (format: string) => {
-    alert(`Exporting ${TABS[tab]} report as ${format}... (connect to API)`);
+    const { tabName, headers, rows } = getReportData();
+    const date = new Date().toISOString().slice(0, 10);
+
+    if (format === "Excel" || format === "CSV") {
+      const csv = [
+        headers.join(","),
+        ...rows.map((r) => r.map((c) => `"${c}"`).join(",")),
+      ].join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${tabName}_Report_${date}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (format === "PDF") {
+      const doc = new jsPDF();
+      // Header
+      doc.setFontSize(18);
+      doc.setTextColor(201, 163, 106);
+      doc.text("Rupiah Building", 14, 18);
+      doc.setFontSize(12);
+      doc.setTextColor(43, 43, 43);
+      doc.text(`${tabName} Report`, 14, 28);
+      doc.setFontSize(9);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Generated: ${date} | Period: ${period}`, 14, 36);
+      // Table
+      autoTable(doc, {
+        head: [headers],
+        body: rows,
+        startY: 44,
+        styles: { fontSize: 10, cellPadding: 4 },
+        headStyles: {
+          fillColor: [201, 163, 106],
+          textColor: 255,
+          fontStyle: "bold",
+        },
+        alternateRowStyles: { fillColor: [245, 240, 232] },
+        margin: { left: 14, right: 14 },
+      });
+      doc.save(`${tabName}_Report_${date}.pdf`);
+    }
   };
 
   return (

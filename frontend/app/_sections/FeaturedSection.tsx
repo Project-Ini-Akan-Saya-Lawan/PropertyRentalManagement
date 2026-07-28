@@ -1,5 +1,4 @@
 "use client";
-
 import { useRef } from "react";
 import { useInView, motion } from "framer-motion";
 import Image from "next/image";
@@ -9,15 +8,18 @@ export default function FeaturedSection() {
   const inView = useInView(ref, { once: true, margin: "-80px" });
 
   return (
-    <section ref={ref} className="py-16 bg-white border-t border-gray-100">
+    <section
+      ref={ref}
+      className="py-10 sm:py-16 bg-white border-t border-gray-100 overflow-hidden"
+    >
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="grid md:grid-cols-2 gap-12 items-center">
+        <div className="grid md:grid-cols-2 gap-8 sm:gap-12 items-center">
           {/* Image */}
           <motion.div
             initial={{ opacity: 0, x: -24 }}
             animate={inView ? { opacity: 1, x: 0 } : {}}
             transition={{ duration: 0.6 }}
-            className="relative h-72 md:h-[420px] overflow-hidden"
+            className="relative h-56 sm:h-72 md:h-[420px] overflow-hidden rounded-lg"
           >
             <Image
               src="/buildings/building-front.png"
@@ -27,13 +29,13 @@ export default function FeaturedSection() {
             />
           </motion.div>
 
-          {/* Text - sesuai ss kedua */}
+          {/* Text */}
           <motion.div
             initial={{ opacity: 0, x: 24 }}
             animate={inView ? { opacity: 1, x: 0 } : {}}
             transition={{ duration: 0.6, delay: 0.1 }}
           >
-            <h2 className="font-serif text-3xl md:text-4xl font-bold text-[#2B2B2B] mb-5 leading-tight">
+            <h2 className="font-serif text-2xl sm:text-3xl md:text-4xl font-bold text-[#2B2B2B] mb-4 sm:mb-5 leading-tight">
               The Standard of Industrial Excellence in Jababeka
             </h2>
             <p className="text-sm text-gray-600 leading-relaxed">

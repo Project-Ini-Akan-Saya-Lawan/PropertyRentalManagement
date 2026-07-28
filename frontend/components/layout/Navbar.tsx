@@ -58,8 +58,16 @@ export default function Navbar() {
 
   return (
     <>
-      <header className="fixed top-0 inset-x-0 z-50 bg-white border-b border-gray-200 h-[72px]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-full flex items-center justify-between gap-8">
+      <header
+        className={cn(
+          "fixed top-0 left-0 right-0 w-full z-50 bg-white border-b border-gray-200 h-[72px] overflow-hidden",
+          // Force a dedicated compositing layer so mobile browsers (esp. iOS
+          // Safari) paint this fixed header immediately on load, instead of
+          // waiting for a scroll/touch event to trigger a repaint.
+          "[transform:translateZ(0)] [-webkit-transform:translateZ(0)] [backface-visibility:hidden] [-webkit-backface-visibility:hidden]",
+        )}
+      >
+        <div className="w-full px-4 sm:px-6 h-full flex items-center justify-between overflow-hidden">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 flex-shrink-0">
             <div className="relative w-9 h-9">
@@ -71,7 +79,7 @@ export default function Navbar() {
                 priority
               />
             </div>
-            <span className="font-semibold text-[15px] text-[#2B2B2B] tracking-wide uppercase">
+            <span className="hidden xs:inline font-semibold text-[15px] text-[#2B2B2B] tracking-wide uppercase sm:inline">
               Rupiah Building
             </span>
           </Link>

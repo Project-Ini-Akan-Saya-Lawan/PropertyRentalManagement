@@ -14,7 +14,6 @@ import {
   Bell,
   Settings,
   User,
-  ArrowLeft,
   LogOut,
   ExternalLink,
   Menu,
@@ -75,11 +74,9 @@ export default function AdminLayout({
   }, [pathname]);
 
   const handleLogout = () => {
-    localStorage.removeItem("isAdmin");
-    localStorage.removeItem("isLoggedIn");
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    localStorage.removeItem("userEmail");
+    ["isAdmin", "isLoggedIn", "token", "user", "userEmail"].forEach((k) =>
+      localStorage.removeItem(k),
+    );
     router.push("/");
   };
 
@@ -94,8 +91,8 @@ export default function AdminLayout({
   const iconClass = (href: string) =>
     cn(isActive(href) ? "text-[#2B2B2B]" : "text-[#2B2B2B]/60");
 
-  const SidebarContent = () => (
-    <div className="flex flex-col h-full">
+  const SidebarLinks = () => (
+    <>
       <nav className="px-2 py-3 space-y-0.5">
         {NAV_ITEMS.map(({ label, href, icon: Icon }) => (
           <Link key={href} href={href} className={navClass(href)}>
@@ -121,29 +118,54 @@ export default function AdminLayout({
         ))}
       </div>
       <div className="flex-1" />
-      <div className="px-4 py-3 border-t-2 border-[#C9A36A]/40">
+      <div className="px-4 py-3 border-t-2 border-[#C9A36A]/40 mt-auto">
         <p className="text-[9px] font-medium text-[#2B2B2B]/40 text-center">
           &copy; 2026 Rupiah Building Jababeka
         </p>
       </div>
-    </div>
+    </>
   );
 
   return (
-    <>
-      {/* Header */}
-      <header className="fixed top-0 inset-x-0 z-50 bg-white border-b border-gray-200 h-[72px] flex items-center justify-between px-4 sm:px-6">
-        <div className="flex items-center gap-3">
-          {/* Mobile hamburger */}
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        overflow: "hidden",
+      }}
+    >
+      {/* ── Header ── */}
+      <header
+        style={{
+          flexShrink: 0,
+          height: 72,
+          borderBottom: "1px solid #e5e7eb",
+          background: "#fff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 24px",
+          zIndex: 50,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            onClick={() => setSidebarOpen(true)}
+            style={{ display: "none" }}
+            className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <Menu size={20} className="text-[#2B2B2B]" />
+          </button>
+          {/* Show hamburger on mobile via Tailwind */}
           <button
             onClick={() => setSidebarOpen(true)}
             className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <Menu size={20} className="text-[#2B2B2B]" />
           </button>
-
-          <Link href="/" className="flex items-center gap-2 flex-shrink-0">
-            <div className="relative w-8 h-8 sm:w-9 sm:h-9">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="relative w-9 h-9">
               <Image
                 src="/logos/rupiah-logo.png"
                 alt="Rupiah Building"
@@ -197,9 +219,29 @@ export default function AdminLayout({
         </div>
       </header>
 
-      {/* Mobile sidebar overlay */}
+      {/* ── Body ── */}
+      <div
+        style={{
+          display: "flex",
+          flex: 1,
+          overflow: "hidden",
+          background: "#F5F0E8",
+        }}
+      >
+        {/* Desktop Sidebar */}
+        <aside className="hidden md:flex flex-col w-56 flex-shrink-0 border-r-2 border-[#C9A36A]/40 bg-[#F5F0E8] overflow-y-auto">
+          <SidebarLinks />
+        </aside>
+
+        {/* Main Content */}
+        <main className="flex-1 overflow-y-auto bg-white p-4 sm:p-6 min-w-0">
+          {children}
+        </main>
+      </div>
+
+      {/* Mobile Sidebar */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-[100] md:hidden">
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setSidebarOpen(false)}
@@ -216,28 +258,12 @@ export default function AdminLayout({
                 <X size={16} className="text-[#2B2B2B]" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto">
-              <SidebarContent />
+            <div className="flex flex-col flex-1 overflow-y-auto">
+              <SidebarLinks />
             </div>
           </aside>
         </div>
       )}
-
-      {/* Body */}
-      <div
-        className="flex pt-[72px]"
-        style={{ minHeight: "100vh", backgroundColor: "#F5F0E8" }}
-      >
-        {/* Desktop sidebar — sticky, nempel di bawah header */}
-        <aside className="hidden md:flex w-56 flex-shrink-0 flex-col border-r-2 border-[#C9A36A]/40 bg-[#F5F0E8] sticky top-[72px] self-start h-[calc(100vh-72px)]">
-          <SidebarContent />
-        </aside>
-
-        {/* Main content */}
-        <main className="flex-1 bg-white p-4 sm:p-6 min-w-0 min-h-[calc(100vh-72px)]">
-          {children}
-        </main>
-      </div>
-    </>
+    </div>
   );
 }
