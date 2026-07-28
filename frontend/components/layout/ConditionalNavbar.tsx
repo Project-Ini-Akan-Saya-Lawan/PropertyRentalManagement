@@ -1,23 +1,18 @@
 "use client";
-import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Navbar from "@/components/layout/Navbar";
 
 export default function ConditionalNavbar() {
   const pathname = usePathname();
-  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Render Navbar immediately on server for non-admin pages
-  // On client, hide if admin page
-  if (mounted && pathname.startsWith("/admin")) return null;
-
-  // Don't render on admin pages even before mount (SSR check via pathname)
-  if (typeof window === "undefined" && pathname?.startsWith("/admin"))
-    return null;
+  // pathname is already identical on the server's first render and the
+  // client's hydration pass (Next.js derives it from the request URL both
+  // times), so this is enough on its own - no "mounted" or window check
+  // needed. The previous version fell through to <Navbar /> on the client's
+  // very first render (before its useEffect had run) while the server had
+  // already rendered null for /admin/* pages, causing a hydration mismatch
+  // on every single admin page.
+  if (pathname?.startsWith("/admin")) return null;
 
   return <Navbar />;
 }

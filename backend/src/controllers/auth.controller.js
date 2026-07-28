@@ -111,6 +111,19 @@ const login = async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password." });
     }
 
+    if (user.status === "suspended") {
+      return res.status(403).json({
+        message:
+          "Your account has been suspended. Please contact support for assistance.",
+      });
+    }
+    if (user.status === "inactive") {
+      return res.status(403).json({
+        message:
+          "Your account is inactive. Please contact support to reactivate it.",
+      });
+    }
+
     const token = generateToken(user);
 
     res.status(200).json({
@@ -134,6 +147,10 @@ const googleCallback = (req, res) => {
 
   if (!req.user) {
     return res.redirect(`${clientUrl}/login?error=google_failed`);
+  }
+
+  if (req.user.status === "suspended" || req.user.status === "inactive") {
+    return res.redirect(`${clientUrl}/login?error=account_${req.user.status}`);
   }
 
   const token = generateToken(req.user);

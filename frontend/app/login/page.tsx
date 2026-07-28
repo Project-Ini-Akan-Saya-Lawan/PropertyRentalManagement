@@ -22,7 +22,10 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect");
-  const googleError = searchParams.get("error") === "google_failed";
+  const errorParam = searchParams.get("error");
+  const googleError = errorParam === "google_failed";
+  const accountBlockedError =
+    errorParam === "account_suspended" || errorParam === "account_inactive";
 
   const {
     register,
@@ -85,6 +88,13 @@ function LoginForm() {
           <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-500">
             Login dengan Google gagal atau dibatalkan. Silakan coba lagi atau
             gunakan email &amp; password.
+          </div>
+        )}
+        {accountBlockedError && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-500">
+            {errorParam === "account_suspended"
+              ? "Your account has been suspended. Please contact support for assistance."
+              : "Your account is inactive. Please contact support to reactivate it."}
           </div>
         )}
 

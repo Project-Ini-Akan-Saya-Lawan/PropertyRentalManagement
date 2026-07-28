@@ -95,10 +95,10 @@ export default function Footer() {
             <li className="flex gap-2 items-start">
               <Mail size={13} className="mt-0.5 flex-shrink-0 text-[#C9A36A]" />
               <a
-                href="mailto:info@rupiahbuilding.com"
+                href="mailto:main@rupiah-building.com"
                 className="hover:text-[#C9A36A] transition-colors"
               >
-                info@rupiahbuilding.com
+                main@rupiah-building.com
               </a>
             </li>
             <li className="flex gap-2 items-start">

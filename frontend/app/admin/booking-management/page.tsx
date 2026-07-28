@@ -2,7 +2,6 @@
 import { useState, useEffect } from "react";
 import {
   Search,
-  Download,
   CheckCircle,
   XCircle,
   Clock,
@@ -102,12 +101,13 @@ export default function BookingManagementPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [page, setPage] = useState(1);
-  const [modal, setModal] = useState<
-    "view" | "approve" | "cancel" | "pending" | null
-  >(null);
+  const [modal, setModal] = useState<"view" | "cancel" | "pending" | null>(
+    null,
+  );
   const [selected, setSelected] = useState<Booking | null>(null);
   const [actionNote, setActionNote] = useState("");
   const [loading, setLoading] = useState(true);
+  const [actionError, setActionError] = useState("");
   const PER_PAGE = 5;
 
   const fetchBookings = () => {
@@ -160,8 +160,9 @@ export default function BookingManagementPage() {
       Pending: "pending",
       Cancelled: "cancelled",
     };
+    setActionError("");
     try {
-      await fetch(`${API_URL}/api/bookings/${selected.id}/status`, {
+      const res = await fetch(`${API_URL}/api/bookings/${selected.id}/status`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -169,18 +170,29 @@ export default function BookingManagementPage() {
         },
         body: JSON.stringify({ status: statusMap[newStatus] }),
       });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // Surface the real backend error instead of silently pretending the
+        // update succeeded - previously this was swallowed, so admins saw
+        // the modal close and the row appear to change while nothing was
+        // actually persisted, and the next refresh reverted it back.
+        setActionError(
+          result.message || `Failed to update booking (${res.status}).`,
+        );
+        return;
+      }
+      setModal(null);
+      setSelected(null);
+      setActionNote("");
       fetchBookings();
     } catch (err) {
       console.error("Failed to update status:", err);
-      setBookings((prev) =>
-        prev.map((b) =>
-          b.id === selected.id ? { ...b, status: newStatus } : b,
-        ),
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "Cannot connect to server. Please try again.",
       );
     }
-    setModal(null);
-    setSelected(null);
-    setActionNote("");
   };
 
   const filtered = bookings.filter((b) => {
@@ -294,9 +306,6 @@ export default function BookingManagementPage() {
                 </button>
               ))}
             </div>
-            <button className="p-1.5 border-2 border-[#C9A36A]/30 rounded-lg hover:border-[#C9A36A] transition-colors">
-              <Download size={13} className="text-[#C9A36A]" />
-            </button>
           </div>
         </div>
 
@@ -388,18 +397,6 @@ export default function BookingManagementPage() {
                         >
                           <Eye size={13} className="text-[#C9A36A]" />
                         </button>
-                        {b.status !== "Approved" && (
-                          <button
-                            onClick={() => {
-                              setSelected(b);
-                              setModal("approve");
-                            }}
-                            className="p-1.5 hover:bg-green-50 rounded-lg transition-colors"
-                            title="Approve"
-                          >
-                            <CheckCircle size={13} className="text-green-500" />
-                          </button>
-                        )}
                         {b.status !== "Pending" && (
                           <button
                             onClick={() => {
@@ -493,15 +490,12 @@ export default function BookingManagementPage() {
               </div>
             ))}
           </div>
+          {actionError && (
+            <p className="text-red-500 text-xs font-semibold mb-3">
+              {actionError}
+            </p>
+          )}
           <div className="flex gap-2">
-            {selected.status !== "Approved" && (
-              <button
-                onClick={() => updateStatus("Approved")}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-green-500 hover:bg-green-600 text-white text-xs font-bold py-2 rounded-lg transition-colors"
-              >
-                <CheckCircle size={13} /> Approve
-              </button>
-            )}
             {selected.status !== "Pending" && (
               <button
                 onClick={() => updateStatus("Pending")}
@@ -512,7 +506,10 @@ export default function BookingManagementPage() {
             )}
             {selected.status !== "Cancelled" && (
               <button
-                onClick={() => setModal("cancel")}
+                onClick={() => {
+                  setActionError("");
+                  setModal("cancel");
+                }}
                 className="flex-1 flex items-center justify-center gap-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2 rounded-lg transition-colors"
               >
                 <XCircle size={13} /> Cancel
@@ -522,52 +519,15 @@ export default function BookingManagementPage() {
         </Modal>
       )}
 
-      {/* Approve Modal */}
-      {modal === "approve" && selected && (
-        <Modal title="Approve Booking" onClose={() => setModal(null)}>
-          <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
-            <CheckCircle size={20} className="text-green-500 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-bold text-[#2B2B2B]">
-                Approve #{selected.bookingId}?
-              </p>
-              <p className="text-xs text-[#2B2B2B]/60">
-                {selected.tenantName} — {selected.property}
-              </p>
-            </div>
-          </div>
-          <div className="mb-4">
-            <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-              Note (optional)
-            </label>
-            <textarea
-              value={actionNote}
-              onChange={(e) => setActionNote(e.target.value)}
-              placeholder="Add a note..."
-              rows={3}
-              className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none resize-none"
-            />
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setModal(null)}
-              className="flex-1 border-2 border-gray-200 text-[#2B2B2B] text-xs font-semibold py-2.5 rounded-lg hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => updateStatus("Approved")}
-              className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs font-bold py-2.5 rounded-lg transition-colors"
-            >
-              Confirm Approve
-            </button>
-          </div>
-        </Modal>
-      )}
-
       {/* Pending Modal */}
       {modal === "pending" && selected && (
-        <Modal title="Set to Pending" onClose={() => setModal(null)}>
+        <Modal
+          title="Set to Pending"
+          onClose={() => {
+            setModal(null);
+            setActionError("");
+          }}
+        >
           <div className="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
             <Clock size={20} className="text-orange-500 flex-shrink-0" />
             <div>
@@ -591,9 +551,17 @@ export default function BookingManagementPage() {
               className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none resize-none"
             />
           </div>
+          {actionError && (
+            <p className="text-red-500 text-xs font-semibold mb-3">
+              {actionError}
+            </p>
+          )}
           <div className="flex gap-3">
             <button
-              onClick={() => setModal(null)}
+              onClick={() => {
+                setModal(null);
+                setActionError("");
+              }}
               className="flex-1 border-2 border-gray-200 text-[#2B2B2B] text-xs font-semibold py-2.5 rounded-lg hover:bg-gray-50"
             >
               Cancel
@@ -610,7 +578,13 @@ export default function BookingManagementPage() {
 
       {/* Cancel Modal */}
       {modal === "cancel" && selected && (
-        <Modal title="Cancel Booking" onClose={() => setModal(null)}>
+        <Modal
+          title="Cancel Booking"
+          onClose={() => {
+            setModal(null);
+            setActionError("");
+          }}
+        >
           <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
             <XCircle size={20} className="text-red-500 flex-shrink-0" />
             <div>
@@ -634,15 +608,29 @@ export default function BookingManagementPage() {
               className="w-full border-2 border-[#C9A36A]/30 rounded-lg px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none resize-none"
             />
           </div>
+          {actionError && (
+            <p className="text-red-500 text-xs font-semibold mb-3">
+              {actionError}
+            </p>
+          )}
           <div className="flex gap-3">
             <button
-              onClick={() => setModal(null)}
+              onClick={() => {
+                setModal(null);
+                setActionError("");
+              }}
               className="flex-1 border-2 border-gray-200 text-[#2B2B2B] text-xs font-semibold py-2.5 rounded-lg hover:bg-gray-50"
             >
               Back
             </button>
             <button
-              onClick={() => updateStatus("Cancelled")}
+              onClick={() => {
+                if (!actionNote.trim()) {
+                  setActionError("Please provide a cancellation reason.");
+                  return;
+                }
+                updateStatus("Cancelled");
+              }}
               className="flex-1 bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2.5 rounded-lg transition-colors"
             >
               Confirm Cancel

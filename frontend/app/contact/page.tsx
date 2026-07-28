@@ -36,8 +36,8 @@ const CONTACT_INFO = [
   {
     icon: Mail,
     label: "Email",
-    content: "info@rupiahbuilding.com",
-    href: "mailto:info@rupiahbuilding.com",
+    content: "main@rupiah-building.com",
+    href: "mailto:main@rupiah-building.com",
     isLink: true,
   },
   {

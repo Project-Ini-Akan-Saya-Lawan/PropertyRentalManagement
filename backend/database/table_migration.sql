@@ -136,3 +136,113 @@ WHERE deleted_at IS NULL;
 -- Speeds up the expiry job's scan for stale pending bookings.
 
 COMMIT;
+
+-- Demo/dummy data: populates Bookings + Payments with realistic data spread
+-- across the last 6 months, so the admin panel's charts (Reports > Revenue
+-- Trend / Occupancy / Bookings, the main Dashboard stats, and Payment
+-- Management's table) have something real to render instead of an
+-- empty/zero state. Safe to re-run - everything is scoped to dedicated
+-- "demo.*" tenant accounts, and the block below clears out any bookings
+-- from a previous run before re-inserting, so it never duplicates data or
+-- touches real users.
+--
+-- To remove the demo data later:
+--   DELETE FROM Bookings WHERE user_id IN (SELECT user_id FROM Users WHERE email LIKE 'demo.%@rupiah-building.com');
+--   DELETE FROM Users WHERE email LIKE 'demo.%@rupiah-building.com';
+BEGIN;
+
+-- Three dedicated demo tenants to own the dummy bookings. Using more than
+-- one keeps "Total Tenants" / "New This Month" on the Reports page from
+-- looking like a single fake account, and spreads bookings out like a real
+-- tenant base would.
+INSERT INTO Users (username, email, phone_number, hashed_password, auth_provider, role_id, company, status)
+VALUES
+    ('Demo Tenant - Startup Co', 'demo.startup@rupiah-building.com', NULL, NULL, 'local', 2, 'Demo Startup Co', 'active'),
+    ('Demo Tenant - Consulting Group', 'demo.consulting@rupiah-building.com', NULL, NULL, 'local', 2, 'Demo Consulting Group', 'active'),
+    ('Demo Tenant - Studio Kreatif', 'demo.studio@rupiah-building.com', NULL, NULL, 'local', 2, 'Demo Studio Kreatif', 'active')
+ON CONFLICT (email) DO NOTHING;
+
+-- Clear out any demo bookings from a previous run first, so re-running this
+-- file replaces the data instead of duplicating it (Payments rows are
+-- removed automatically via their FK's ON DELETE CASCADE).
+DELETE FROM Bookings
+WHERE user_id IN (SELECT user_id FROM Users WHERE email LIKE 'demo.%@rupiah-building.com');
+
+-- Dummy bookings across the last 6 months, mixing both towers (Wowo:
+-- pack_id 1-3, Wowi: pack_id 4-6), a realistic status mix (mostly
+-- confirmed/completed so revenue shows up, plus a few pending/cancelled so
+-- the status breakdown chart isn't a single flat bar), and total_price
+-- using the same "yearly + 10%" formula the booking controller itself uses
+-- (Floor_Packs.Price * years * 1.1).
+WITH demo_users AS (
+  SELECT user_id, email FROM Users WHERE email IN (
+    'demo.startup@rupiah-building.com',
+    'demo.consulting@rupiah-building.com',
+    'demo.studio@rupiah-building.com'
+  )
+),
+booking_data (email, pack_id, floor_booked, months_ago, term_years, status) AS (
+  VALUES
+    -- 5 months ago
+    ('demo.startup@rupiah-building.com',    1, 6,  5, 1, 'completed'),
+    ('demo.consulting@rupiah-building.com', 5, 13, 5, 1, 'confirmed'),
+    -- 4 months ago
+    ('demo.studio@rupiah-building.com',     2, 12, 4, 1, 'confirmed'),
+    ('demo.startup@rupiah-building.com',    4, 7,  4, 1, 'cancelled'),
+    -- 3 months ago
+    ('demo.consulting@rupiah-building.com', 3, 21, 3, 2, 'confirmed'),
+    ('demo.studio@rupiah-building.com',     6, 22, 3, 1, 'completed'),
+    -- 2 months ago
+    ('demo.startup@rupiah-building.com',    2, 14, 2, 1, 'confirmed'),
+    ('demo.consulting@rupiah-building.com', 4, 8,  2, 1, 'confirmed'),
+    -- 1 month ago
+    ('demo.studio@rupiah-building.com',     1, 9,  1, 1, 'confirmed'),
+    ('demo.startup@rupiah-building.com',    5, 15, 1, 1, 'pending'),
+    -- this month
+    ('demo.consulting@rupiah-building.com', 6, 23, 0, 1, 'confirmed'),
+    ('demo.studio@rupiah-building.com',     3, 20, 0, 1, 'confirmed')
+),
+priced AS (
+  SELECT
+    du.user_id,
+    bd.pack_id,
+    bd.floor_booked,
+    bd.status,
+    (CURRENT_DATE - make_interval(months => bd.months_ago))::date AS start_date,
+    (CURRENT_DATE - make_interval(months => bd.months_ago) + make_interval(months => bd.term_years * 12))::date AS end_date,
+    (CURRENT_TIMESTAMP - make_interval(months => bd.months_ago)) AS booking_date,
+    ROUND(fp.price * bd.term_years * 1.1, 2) AS total_price
+  FROM booking_data bd
+  JOIN demo_users du ON du.email = bd.email
+  JOIN Floor_Packs fp ON fp.pack_id = bd.pack_id
+),
+new_bookings AS (
+  INSERT INTO Bookings (user_id, pack_id, floor_booked, start_date, end_date, total_price, status, booking_date)
+  SELECT user_id, pack_id, floor_booked, start_date, end_date, total_price, status, booking_date
+  FROM priced
+  RETURNING booking_id, total_price, status, booking_date
+)
+-- A matching Payment row per booking, mapped to the same Status values the
+-- real Midtrans webhook uses (see src/utils/midtransStatus.js): confirmed/
+-- completed bookings were actually "paid"; a cancelled booking's payment
+-- was "cancelled"; a pending booking's VA is still "pending". Bank is
+-- rotated across bca/bri/mandiri so the payment-method breakdown isn't a
+-- single flat bar either.
+INSERT INTO Payments (booking_id, amount, payment_method, bank, status, order_id, transaction_reference, created_at, paid_at)
+SELECT
+  booking_id,
+  total_price,
+  'bank_transfer',
+  (ARRAY['bca', 'bri', 'mandiri'])[(booking_id % 3) + 1],
+  CASE
+    WHEN status IN ('confirmed', 'completed') THEN 'paid'
+    WHEN status = 'cancelled' THEN 'cancelled'
+    ELSE 'pending'
+  END,
+  'DEMO-' || booking_id,
+  'DEMO-' || booking_id,
+  booking_date,
+  CASE WHEN status IN ('confirmed', 'completed') THEN booking_date + INTERVAL '2 hours' ELSE NULL END
+FROM new_bookings;
+
+COMMIT;
