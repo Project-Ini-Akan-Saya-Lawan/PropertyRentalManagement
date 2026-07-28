@@ -1,6 +1,5 @@
 "use client";
-
-import { use } from "react";
+import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,24 +8,20 @@ import { motion } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import BookingStepper from "@/components/booking/BookingStepper";
 import BookingSummary from "@/components/booking/BookingSummary";
-import { getWorkspaceBySlug } from "@/data/workspaces";
-import { notFound } from "next/navigation";
+import { getWorkspaceBySlug, apiPackToWorkspace } from "@/data/workspaces";
+import { Workspace } from "@/types";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 const schema = z.object({
   floor: z.string().min(1, "Required"),
   commitmentTerms: z.string().min(1, "Required"),
   date: z.string().min(1, "Required"),
 });
-
 type Form = z.infer<typeof schema>;
 
 const TERMS = ["1 Year", "5 Years", "10 Years", "15 Years", "20 Years"];
 
-// Derives the list of selectable floors from a workspace's own floorRange
-// (e.g. "Floors 5-8" or "Floors 5 – 10") instead of a single hardcoded list
-// shared by every pack. This keeps the dropdown in sync with what the
-// backend actually accepts for that pack (see bookings.controller.js,
-// which validates floor_booked against Floor_Packs.floor_range).
 function getFloorOptions(floorRange: string): string[] {
   const match = floorRange.match(/(\d+)\D+(\d+)/);
   if (!match) return [];
@@ -54,8 +49,34 @@ export default function RentDetailsPage({
 }) {
   const { slug } = use(params);
   const router = useRouter();
-  const workspace = getWorkspaceBySlug(slug);
-  if (!workspace) notFound();
+  const [workspace, setWorkspace] = useState<Workspace | null>(
+    getWorkspaceBySlug(slug) || null,
+  );
+  const [loading, setLoading] = useState(!workspace);
+
+  useEffect(() => {
+    if (workspace) return;
+    // Fetch from API for non-static slugs (e.g. pack-8)
+    fetch(`${API_URL}/api/floor-packs`)
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) {
+          const packIdMatch = slug.match(/^pack-(\d+)$/);
+          const found = packIdMatch
+            ? result.data.find(
+                (p: { pack_id: number }) =>
+                  p.pack_id === Number(packIdMatch[1]),
+              )
+            : result.data.find(
+                (p: { pack_name: string }) =>
+                  p.pack_name.toLowerCase().replace(/\s+/g, "-") === slug,
+              );
+          if (found) setWorkspace(apiPackToWorkspace(found));
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [slug]);
 
   const {
     register,
@@ -69,10 +90,10 @@ export default function RentDetailsPage({
 
   const w = watch();
   const endDate = calcEndDate(w.date, w.commitmentTerms);
-  const floorOptions = getFloorOptions(workspace.floorRange);
+  const floorOptions = workspace ? getFloorOptions(workspace.floorRange) : [];
 
   const onSubmit = (data: Form) => {
-    // Simpan ke sessionStorage saja — booking dibuat setelah payment berhasil
+    if (!workspace) return;
     sessionStorage.setItem(
       `rent-${slug}`,
       JSON.stringify({
@@ -85,6 +106,20 @@ export default function RentDetailsPage({
     router.push(`/workspace/${slug}/rent-details/confirm-details`);
   };
 
+  if (loading)
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Loading...</p>
+      </div>
+    );
+
+  if (!workspace)
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Package not found.</p>
+      </div>
+    );
+
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
@@ -94,13 +129,10 @@ export default function RentDetailsPage({
         >
           <ArrowLeft size={13} /> Back
         </button>
-
         <h1 className="font-serif text-2xl font-bold text-[#C9A36A] mb-6">
           Rent Details
         </h1>
-
         <BookingStepper step={1} />
-
         <div className="grid lg:grid-cols-3 gap-8">
           <motion.div
             initial={{ opacity: 0, y: 16 }}
@@ -119,7 +151,6 @@ export default function RentDetailsPage({
                       : workspace.tower}
                   </div>
                 </div>
-
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                     Type Office
@@ -128,7 +159,6 @@ export default function RentDetailsPage({
                     {workspace.workspaceType}
                   </div>
                 </div>
-
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                     Commitment Terms
@@ -150,7 +180,6 @@ export default function RentDetailsPage({
                     </p>
                   )}
                 </div>
-
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                     Floor
@@ -163,7 +192,7 @@ export default function RentDetailsPage({
                     <option value="">
                       {floorOptions.length > 0
                         ? "Select floor"
-                        : "No floors available for this pack"}
+                        : "No floors available"}
                     </option>
                     {floorOptions.map((f) => (
                       <option key={f} value={f}>
@@ -172,7 +201,7 @@ export default function RentDetailsPage({
                     ))}
                   </select>
                   <p className="text-[11px] text-gray-400 mt-1">
-                    Available for this pack: {workspace.floorRange}
+                    Available: {workspace.floorRange}
                   </p>
                   {errors.floor && (
                     <p className="text-red-500 text-[10px] mt-1">
@@ -180,7 +209,6 @@ export default function RentDetailsPage({
                     </p>
                   )}
                 </div>
-
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                     Start Date
@@ -197,7 +225,6 @@ export default function RentDetailsPage({
                     </p>
                   )}
                 </div>
-
                 <div>
                   <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
                     End Date
@@ -210,7 +237,6 @@ export default function RentDetailsPage({
                   </div>
                 </div>
               </div>
-
               <button
                 type="submit"
                 className="bg-[#C9A36A] hover:bg-[#A8834A] text-white font-semibold text-sm px-8 py-2.5 rounded-md transition-colors"
@@ -219,7 +245,6 @@ export default function RentDetailsPage({
               </button>
             </form>
           </motion.div>
-
           <BookingSummary
             workspace={workspace}
             floor={w.floor}

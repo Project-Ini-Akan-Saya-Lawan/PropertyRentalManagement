@@ -36,10 +36,21 @@ interface Booking {
   end_date: string;
   pack_id: number;
   booking_date: string;
+  total_price: number;
 }
 
 const TABS = ["Revenue", "Occupancy", "Bookings", "Tenants"];
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+
+// Compact currency label for chart bars (formatIDR's full "Rp x.xxx,xx"
+// format is too long to fit under a narrow bar).
+function formatCompactIDR(amount: number): string {
+  if (amount >= 1_000_000_000) return `${(amount / 1_000_000_000).toFixed(1)}B`;
+  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(1)}M`;
+  if (amount >= 1_000) return `${(amount / 1_000).toFixed(0)}K`;
+  return String(amount);
+}
+
 const MONTHS = [
   "Jan",
   "Feb",
@@ -87,7 +98,11 @@ function StatCard({
         {label}
       </p>
       <p
-        className={`text-2xl font-bold ${alert ? "text-orange-600" : "text-[#2B2B2B]"}`}
+        className={`font-bold break-words leading-tight ${
+          typeof value === "string" && value.length > 12
+            ? "text-lg"
+            : "text-2xl"
+        } ${alert ? "text-orange-600" : "text-[#2B2B2B]"}`}
       >
         {value ?? <span className="text-gray-200 text-sm">—</span>}
       </p>
@@ -102,11 +117,13 @@ function BarChart({
   labels,
   color = "#C9A36A",
   height = 160,
+  formatValue = (v: number) => String(v),
 }: {
   data: number[];
   labels: string[];
   color?: string;
   height?: number;
+  formatValue?: (v: number) => string;
 }) {
   const max = Math.max(...data, 1);
   return (
@@ -118,7 +135,7 @@ function BarChart({
             className="flex-1 flex flex-col items-center gap-1 h-full justify-end"
           >
             <span className="text-[9px] font-bold text-[#2B2B2B]/60">
-              {val > 0 ? val : ""}
+              {val > 0 ? formatValue(val) : ""}
             </span>
             <div
               className="w-full rounded-t-md transition-all duration-500"
@@ -290,18 +307,56 @@ export default function ReportsPage() {
 
   // Build monthly booking chart data (last 6 months)
   const bookingByMonth = Array(6).fill(0);
+  const revenueByMonth = Array(6).fill(0);
   const monthLabels: string[] = [];
   const now = new Date();
+  // A booking only represents real revenue once it's actually been paid for
+  // - "confirmed" (payment settled) or "completed" (lease finished, was paid
+  // at some point). Pending/cancelled bookings never generated revenue.
+  const REVENUE_STATUSES = ["confirmed", "completed"];
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     monthLabels.push(MONTHS[d.getMonth()]);
-    bookingByMonth[5 - i] = bookings.filter((b) => {
+    const inMonth = bookings.filter((b) => {
       const bd = new Date(b.booking_date);
       return (
         bd.getMonth() === d.getMonth() && bd.getFullYear() === d.getFullYear()
       );
-    }).length;
+    });
+    bookingByMonth[5 - i] = inMonth.length;
+    revenueByMonth[5 - i] = inMonth
+      .filter((b) => REVENUE_STATUSES.includes(b.status))
+      .reduce((sum, b) => sum + Number(b.total_price || 0), 0);
   }
+  const revenueThisMonthValue = revenueByMonth[5];
+  const revenueLastMonthValue = revenueByMonth[4];
+  const revenueGrowthValue =
+    revenueLastMonthValue > 0
+      ? ((revenueThisMonthValue - revenueLastMonthValue) /
+          revenueLastMonthValue) *
+        100
+      : revenueThisMonthValue > 0
+        ? 100
+        : 0;
+  const annualYieldValue = bookings
+    .filter((b) => REVENUE_STATUSES.includes(b.status))
+    .reduce((sum, b) => sum + Number(b.total_price || 0), 0);
+
+  useEffect(() => {
+    setStats((prev) => ({
+      ...prev,
+      revenueThisMonth: `Rp ${formatCompactIDR(revenueThisMonthValue)}`,
+      revenueLastMonth: `Rp ${formatCompactIDR(revenueLastMonthValue)}`,
+      revenueGrowth: `${revenueGrowthValue >= 0 ? "+" : ""}${revenueGrowthValue.toFixed(1)}%`,
+      annualYield: `Rp ${formatCompactIDR(annualYieldValue)}`,
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }));
+  }, [
+    revenueThisMonthValue,
+    revenueLastMonthValue,
+    revenueGrowthValue,
+    annualYieldValue,
+  ]);
 
   // Booking status breakdown
   const pending = bookings.filter((b) => b.status === "pending").length;
@@ -309,15 +364,23 @@ export default function ReportsPage() {
   const cancelled = bookings.filter((b) => b.status === "cancelled").length;
   const completed = bookings.filter((b) => b.status === "completed").length;
 
-  // Wowo vs Wowi bookings
+  // Wowo vs Wowi bookings - counts DISTINCT packs with at least one
+  // confirmed booking, capped at 3 per tower (there are only 3 packs each).
+  // Counting every confirmed booking row instead (the previous approach)
+  // let a single pack that had been booked multiple times over the months
+  // push the count past 3, producing nonsensical rates like 167%.
   const wowoPacks = [1, 2, 3];
   const wowiPacks = [4, 5, 6];
-  const wowoBooked = bookings.filter(
-    (b) => wowoPacks.includes(b.pack_id) && b.status === "confirmed",
-  ).length;
-  const wowiBooked = bookings.filter(
-    (b) => wowiPacks.includes(b.pack_id) && b.status === "confirmed",
-  ).length;
+  const wowoBooked = new Set(
+    bookings
+      .filter((b) => wowoPacks.includes(b.pack_id) && b.status === "confirmed")
+      .map((b) => b.pack_id),
+  ).size;
+  const wowiBooked = new Set(
+    bookings
+      .filter((b) => wowiPacks.includes(b.pack_id) && b.status === "confirmed")
+      .map((b) => b.pack_id),
+  ).size;
   const wowoRate = stats.totalUnits ? Math.round((wowoBooked / 3) * 100) : 0;
   const wowiRate = stats.totalUnits ? Math.round((wowiBooked / 3) * 100) : 0;
 
@@ -333,8 +396,8 @@ export default function ReportsPage() {
         ["Revenue Last Month", stats.revenueLastMonth || "—"],
         ["Revenue Growth", stats.revenueGrowth || "—"],
         ["Annual Yield", stats.annualYield || "—"],
-        ["Wowo Tower Confirmed Bookings", String(wowoBooked)],
-        ["Wowi Tower Confirmed Bookings", String(wowiBooked)],
+        ["Wowo Tower Occupied Packs", String(wowoBooked)],
+        ["Wowi Tower Occupied Packs", String(wowiBooked)],
         ["Wowo Occupancy Rate", `${wowoRate}%`],
         ["Wowi Occupancy Rate", `${wowiRate}%`],
       ];
@@ -420,10 +483,10 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <h1
-            className="text-2xl font-bold text-[#2B2B2B]"
+            className="text-xl sm:text-2xl font-bold text-[#2B2B2B]"
             style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
           >
             Reports
@@ -432,7 +495,7 @@ export default function ReportsPage() {
             Business performance overview and analytics
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <select
             value={period}
             onChange={(e) => setPeriod(e.target.value)}
@@ -450,25 +513,25 @@ export default function ReportsPage() {
           </select>
           <button
             onClick={() => handleExport("Excel")}
-            className="flex items-center gap-1.5 border-2 border-[#C9A36A]/40 text-[#C9A36A] text-xs font-bold px-4 py-2 rounded-xl hover:bg-[#C9A36A]/5 transition-colors"
+            className="flex items-center gap-1.5 border-2 border-[#C9A36A]/40 text-[#C9A36A] text-xs font-bold px-3 sm:px-4 py-2 rounded-xl hover:bg-[#C9A36A]/5 transition-colors whitespace-nowrap"
           >
             <Download size={13} /> Export Excel
           </button>
           <button
             onClick={() => handleExport("PDF")}
-            className="flex items-center gap-1.5 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+            className="flex items-center gap-1.5 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-bold px-3 sm:px-4 py-2 rounded-xl transition-colors whitespace-nowrap"
           >
             <Download size={13} /> Export PDF
           </button>
         </div>
       </div>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-2 mb-6 overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
         {TABS.map((t, i) => (
           <button
             key={t}
             onClick={() => setTab(i)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all ${
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all flex-shrink-0 whitespace-nowrap ${
               tab === i
                 ? "bg-[#C9A36A] text-white shadow-sm"
                 : "border-2 border-[#C9A36A]/30 text-[#2B2B2B] hover:border-[#C9A36A]"
@@ -494,13 +557,13 @@ export default function ReportsPage() {
               label="Revenue This Month"
               value={stats.revenueThisMonth}
               icon={<TrendingUp size={16} />}
-              sub="Waiting for payment data"
+              sub="Confirmed & completed bookings"
             />
             <StatCard
               label="Revenue Last Month"
               value={stats.revenueLastMonth}
               icon={<TrendingUp size={16} />}
-              sub="Waiting for payment data"
+              sub="Confirmed & completed bookings"
             />
             <StatCard
               label="Revenue Growth"
@@ -520,10 +583,13 @@ export default function ReportsPage() {
               Revenue Trend
             </p>
             <p className="text-[10px] text-[#2B2B2B]/50 mb-4">
-              Monthly booking count (revenue data available after payment
-              integration)
+              Monthly revenue from confirmed &amp; completed bookings
             </p>
-            <BarChart data={bookingByMonth} labels={monthLabels} />
+            <BarChart
+              data={revenueByMonth}
+              labels={monthLabels}
+              formatValue={formatCompactIDR}
+            />
           </div>
           <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5">
             <p className="text-sm font-bold text-[#2B2B2B] mb-4">
@@ -546,7 +612,7 @@ export default function ReportsPage() {
                     />
                   </div>
                   <p className="text-[10px] text-[#2B2B2B]/40 mt-1">
-                    {t.booked} confirmed bookings
+                    {t.booked} of 3 packs occupied
                   </p>
                 </div>
               ))}
@@ -746,7 +812,7 @@ export default function ReportsPage() {
                 Tenant by Tower
               </p>
               <p className="text-[10px] text-[#2B2B2B]/50 mb-4">
-                Distribution of confirmed bookings per tower
+                Distribution of occupied packs per tower
               </p>
               {bookings.length > 0 ? (
                 <DonutChart

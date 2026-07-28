@@ -10,7 +10,10 @@ export function middleware(request: NextRequest) {
     const isAdmin = request.cookies.get("isAdmin")?.value;
 
     if (!token || !isAdmin) {
-      return NextResponse.redirect(new URL("/404", request.url));
+      // redirect ke /login (bukan /404, karena /404 bukan route valid di App Router)
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("redirect", pathname);
+      return NextResponse.redirect(loginUrl);
     }
   }
 

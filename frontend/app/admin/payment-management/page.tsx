@@ -23,7 +23,7 @@ interface Transaction {
   method: string;
   amount: string;
   amountRaw: number;
-  status: "Paid" | "Pending" | "Refunded" | "Failed";
+  status: "Paid" | "Pending" | "Failed";
   month: number;
   year: number;
 }
@@ -33,7 +33,6 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 const STATUS_STYLE: Record<string, string> = {
   Paid: "bg-green-50 text-green-700 border border-green-200",
   Pending: "bg-orange-50 text-orange-700 border border-orange-200",
-  Refunded: "bg-gray-100 text-gray-600 border border-gray-200",
   Failed: "bg-red-50 text-red-700 border border-red-200",
 };
 
@@ -158,11 +157,7 @@ export default function PaymentManagementPage() {
                     ? "Paid"
                     : p.status === "pending"
                       ? "Pending"
-                      : p.status === "cancelled"
-                        ? "Failed"
-                        : p.status === "refund"
-                          ? "Refunded"
-                          : ("Pending" as Transaction["status"]),
+                      : ("Failed" as Transaction["status"]),
                 month: d.getMonth(),
                 year: d.getFullYear(),
               };
@@ -479,7 +474,7 @@ export default function PaymentManagementPage() {
           </p>
           <div className="flex items-center gap-2">
             <div className="flex gap-1 flex-wrap">
-              {["All", "Paid", "Pending", "Refunded", "Failed"].map((f) => (
+              {["All", "Paid", "Pending", "Failed"].map((f) => (
                 <button
                   key={f}
                   onClick={() => {
@@ -562,9 +557,7 @@ export default function PaymentManagementPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <p
-                        className={`text-xs font-bold ${t.status === "Refunded" ? "line-through text-[#2B2B2B]/40" : "text-[#2B2B2B]"}`}
-                      >
+                      <p className="text-xs font-bold text-[#2B2B2B]">
                         {t.amount}
                       </p>
                     </td>
@@ -662,7 +655,7 @@ export default function PaymentManagementPage() {
                 Status
               </label>
               <div className="flex flex-wrap gap-2">
-                {["All", "Paid", "Pending", "Refunded", "Failed"].map((f) => (
+                {["All", "Paid", "Pending", "Failed"].map((f) => (
                   <button
                     key={f}
                     onClick={() => setFilter(f)}

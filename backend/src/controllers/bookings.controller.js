@@ -86,7 +86,9 @@ const createBooking = async (req, res) => {
     const endDate = new Date(start_date);
     endDate.setMonth(endDate.getMonth() + Number(months));
 
-    const total_price = (Number(price) * (Number(months) / 12))+((Number(price) * (Number(months) / 12))/10);
+    const total_price =
+      Number(price) * (Number(months) / 12) +
+      (Number(price) * (Number(months) / 12)) / 10;
 
     const existingBooking = await pool.query(
       `SELECT booking_id FROM Bookings
@@ -109,7 +111,15 @@ const createBooking = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO Bookings (user_id, pack_id, floor_booked, start_date, end_date, total_price, status, expires_at)
              VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7) RETURNING *`,
-      [userId, pack_id, floor_booked, start_date, endDate, total_price, expiresAt],
+      [
+        userId,
+        pack_id,
+        floor_booked,
+        start_date,
+        endDate,
+        total_price,
+        expiresAt,
+      ],
     );
 
     // Send notification to admin
@@ -157,9 +167,17 @@ const updateBookingStatus = async (req, res) => {
   try {
     // expires_at only matters while a booking is 'pending'; clear it once
     // it moves to any other state so the expiry job stops considering it.
+    //
+    // $1 is cast explicitly here because it's used twice in this query: once
+    // assigned straight to the Status column (inferred as varchar) and once
+    // compared against a text literal in the CASE (inferred as text).
+    // Postgres refuses to reconcile two different inferred types for the
+    // same parameter and throws "inconsistent types deduced for parameter
+    // $1" (42P08) on every single call - this was why every Approve/Pending/
+    // Cancel action from the admin panel failed with a 500 error.
     const result = await pool.query(
       `UPDATE Bookings
-       SET status = $1, expires_at = CASE WHEN $1 = 'pending' THEN expires_at ELSE NULL END
+       SET status = $1::varchar, expires_at = CASE WHEN $1::varchar = 'pending' THEN expires_at ELSE NULL END
        WHERE booking_id = $2 AND deleted_at IS NULL RETURNING *`,
       [status, id],
     );

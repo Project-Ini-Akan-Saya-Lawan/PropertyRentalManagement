@@ -98,7 +98,7 @@ export default function Footer() {
                 href="mailto:main@rupiah-building.com"
                 className="hover:text-[#C9A36A] transition-colors"
               >
-                info@rupiahbuilding.com
+                main@rupiah-building.com
               </a>
             </li>
             <li className="flex gap-2 items-start">

@@ -1,15 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import {
-  User,
-  Shield,
-  CreditCard,
-  Save,
-  ChevronRight,
-  Eye,
-  EyeOff,
-  X,
-} from "lucide-react";
+import { User, Shield, Save, ChevronRight, Eye, EyeOff } from "lucide-react";
 
 const inputCls =
   "w-full border-2 border-[#C9A36A]/30 rounded-xl px-4 py-2.5 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none transition-all bg-white";
@@ -18,216 +9,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
 const SIDEBAR_ITEMS = [
   { key: "profile", label: "Profile", icon: User },
   { key: "security", label: "Security", icon: Shield },
-  { key: "payment", label: "Payment Gateways", icon: CreditCard },
 ];
-
-const INITIAL_GATEWAYS = [
-  {
-    id: "bca",
-    name: "BCA",
-    desc: "Bank Central Asia — Transfer & Virtual Account",
-    merchantId: "BCA-****",
-    env: "Production",
-    active: true,
-  },
-  {
-    id: "mandiri",
-    name: "Mandiri",
-    desc: "Bank Mandiri — Transfer & Virtual Account",
-    merchantId: "MDR-****",
-    env: "Production",
-    active: true,
-  },
-  {
-    id: "bri",
-    name: "BRI",
-    desc: "Bank Rakyat Indonesia — Transfer",
-    merchantId: "BRI-****",
-    env: "Production",
-    active: true,
-  },
-  {
-    id: "bni",
-    name: "BNI",
-    desc: "Bank Negara Indonesia — Transfer",
-    merchantId: "BNI-****",
-    env: "Production",
-    active: true,
-  },
-  {
-    id: "visa",
-    name: "Visa",
-    desc: "Visa Credit & Debit Card",
-    merchantId: "VIS-****",
-    env: "Production",
-    active: true,
-  },
-  {
-    id: "master",
-    name: "Mastercard",
-    desc: "Mastercard Credit & Debit Card",
-    merchantId: "MSC-****",
-    env: "Production",
-    active: true,
-  },
-  {
-    id: "jcb",
-    name: "JCB",
-    desc: "JCB Credit Card",
-    merchantId: "JCB-****",
-    env: "Staging",
-    active: false,
-  },
-];
-
-interface Gateway {
-  id: string;
-  name: string;
-  desc: string;
-  merchantId: string;
-  env: string;
-  active: boolean;
-}
-
-function PaymentGatewaysTab() {
-  const [gateways, setGateways] = useState<Gateway[]>(INITIAL_GATEWAYS);
-  const [configModal, setConfigModal] = useState<Gateway | null>(null);
-
-  const toggleActive = (id: string) => {
-    setGateways((prev) =>
-      prev.map((g) => (g.id === id ? { ...g, active: !g.active } : g)),
-    );
-  };
-
-  const iCls =
-    "w-full border-2 border-[#C9A36A]/30 rounded-xl px-3 py-2 text-sm text-[#2B2B2B] focus:border-[#C9A36A] outline-none";
-
-  return (
-    <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-6">
-      <h2
-        className="text-base font-bold text-[#2B2B2B] mb-5"
-        style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
-      >
-        Payment Gateways
-      </h2>
-      <div className="grid md:grid-cols-2 gap-4">
-        {gateways.map((g) => (
-          <div
-            key={g.id}
-            className={`border-2 rounded-xl p-4 transition-all ${g.active ? "border-[#C9A36A]/30" : "border-gray-100 opacity-60"}`}
-          >
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-[#F5F0E8] rounded-xl flex items-center justify-center flex-shrink-0">
-                  <CreditCard size={18} className="text-[#C9A36A]" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-[#2B2B2B]">{g.name}</p>
-                  <p className="text-[10px] text-[#2B2B2B]/50">{g.desc}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => toggleActive(g.id)}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-colors ${
-                  g.active
-                    ? "bg-green-50 text-green-700 border-green-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
-                    : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200"
-                }`}
-              >
-                {g.active ? "ACTIVE" : "INACTIVE"}
-              </button>
-            </div>
-            <div className="space-y-1.5 mb-4">
-              <div className="flex justify-between text-xs">
-                <span className="text-[#2B2B2B]/50">Merchant ID</span>
-                <span className="font-semibold text-[#2B2B2B]">
-                  {g.merchantId}
-                </span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-[#2B2B2B]/50">Environment</span>
-                <span
-                  className={`font-semibold ${g.env === "Production" ? "text-green-600" : "text-orange-500"}`}
-                >
-                  {g.env}
-                </span>
-              </div>
-            </div>
-            <button
-              onClick={() => setConfigModal(g)}
-              className="w-full border-2 border-[#C9A36A]/30 text-[#2B2B2B] text-xs font-bold py-2 rounded-xl hover:bg-[#C9A36A]/5 hover:border-[#C9A36A] transition-colors"
-            >
-              Configure API
-            </button>
-          </div>
-        ))}
-      </div>
-
-      {configModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h3 className="font-bold text-[#2B2B2B]">
-                Configure {configModal.name}
-              </h3>
-              <button
-                onClick={() => setConfigModal(null)}
-                className="p-1.5 hover:bg-gray-100 rounded-lg"
-              >
-                <X size={16} className="text-gray-500" />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                  API Key
-                </label>
-                <input
-                  type="password"
-                  defaultValue="••••••••••••••••"
-                  className={iCls}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                  Secret Key
-                </label>
-                <input
-                  type="password"
-                  defaultValue="••••••••••••••••"
-                  className={iCls}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
-                  Environment
-                </label>
-                <select defaultValue={configModal.env} className={iCls}>
-                  <option>Production</option>
-                  <option>Staging</option>
-                </select>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setConfigModal(null)}
-                  className="flex-1 border-2 border-gray-200 text-[#2B2B2B] text-xs font-semibold py-2.5 rounded-xl hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => setConfigModal(null)}
-                  className="flex-1 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-bold py-2.5 rounded-xl"
-                >
-                  Save Config
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("profile");
@@ -341,9 +123,9 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <div className="flex gap-5">
+      <div className="flex flex-col md:flex-row gap-5">
         {/* Sidebar */}
-        <div className="w-52 flex-shrink-0">
+        <div className="w-full md:w-52 md:flex-shrink-0">
           <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden">
             {SIDEBAR_ITEMS.map((item, i) => {
               const Icon = item.icon;
@@ -372,7 +154,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 space-y-5">
+        <div className="min-w-0 flex-1 space-y-5">
           {/* Profile Tab */}
           {activeTab === "profile" && (
             <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-6">
@@ -586,9 +368,6 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
-
-          {/* Payment Gateways Tab */}
-          {activeTab === "payment" && <PaymentGatewaysTab />}
         </div>
       </div>
     </div>

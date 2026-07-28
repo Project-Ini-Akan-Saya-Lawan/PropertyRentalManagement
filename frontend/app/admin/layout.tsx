@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import NotFound from "@/app/not-found";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
@@ -56,18 +57,36 @@ export default function AdminLayout({
   const router = useRouter();
   const [username, setUsername] = useState("Admin");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Tri-state auth guard: null = still checking (render nothing), false =
+  // not an admin (render 404), true = verified admin (render the panel).
+  // This replaces the old approach of rendering the panel immediately and
+  // redirecting inside a useEffect, which let the real admin content flash
+  // on screen for a moment before a non-admin visitor got bounced.
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
 
   useEffect(() => {
     const isAdmin = localStorage.getItem("isAdmin");
-    if (!isAdmin) router.push("/login");
+    const token = localStorage.getItem("token");
     const stored = localStorage.getItem("user");
+
+    let role_id: number | null = null;
     if (stored) {
       try {
         const u = JSON.parse(stored);
         if (u.username) setUsername(u.username);
+        role_id = u.role_id ?? null;
       } catch {}
     }
-  }, [router]);
+
+    // Require both the token and the isAdmin/role_id=1 flag - a visitor with
+    // no session at all, or a regular tenant who forged the isAdmin flag in
+    // localStorage, should never see the panel.
+    if (!token || !isAdmin || role_id !== 1) {
+      setIsAuthorized(false);
+      return;
+    }
+    setIsAuthorized(true);
+  }, [pathname]);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -125,6 +144,19 @@ export default function AdminLayout({
       </div>
     </>
   );
+
+  // Still verifying - render nothing rather than the panel, so there is no
+  // flash of admin content while we check localStorage.
+  if (isAuthorized === null) {
+    return <div style={{ minHeight: "100vh", background: "#F5F0E8" }} />;
+  }
+
+  // Not an admin (or no session at all) - show the same 404 experience as
+  // any other nonexistent route (e.g. /login/admin) instead of a redirect
+  // that happens after the panel has already been shown.
+  if (isAuthorized === false) {
+    return <NotFound />;
+  }
 
   return (
     <div
@@ -195,12 +227,6 @@ export default function AdminLayout({
               <p className="text-xs font-bold text-[#2B2B2B]">{username}</p>
               <p className="text-[10px] text-gray-400">Administrator</p>
             </div>
-            <Link
-              href="/account"
-              className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-[#2B2B2B] hover:bg-[#C9A36A]/10 transition-colors"
-            >
-              <ExternalLink size={12} className="text-[#C9A36A]" /> My Account
-            </Link>
             <Link
               href="/workspace"
               className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-[#2B2B2B] hover:bg-[#C9A36A]/10 transition-colors"

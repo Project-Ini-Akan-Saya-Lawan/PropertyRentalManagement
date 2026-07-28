@@ -1,5 +1,4 @@
 "use client";
-
 import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -9,13 +8,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, CheckCircle2, Landmark } from "lucide-react";
 import BookingStepper from "@/components/booking/BookingStepper";
 import BankTransferModal from "@/components/booking/BankTransferModal";
-import { getWorkspaceBySlug } from "@/data/workspaces";
+import { getWorkspaceBySlug, apiPackToWorkspace } from "@/data/workspaces";
 import { formatIDR } from "@/lib/utils";
-import { notFound } from "next/navigation";
 import Image from "next/image";
 import { paymentService, type BankCode } from "@/services/payment";
+import { Workspace } from "@/types";
 
-// Mapping slug → pack_id
 const SLUG_TO_PACK_ID: Record<string, number> = {
   "wowo-starter-pack": 1,
   "wowo-business-pack": 2,
@@ -25,10 +23,7 @@ const SLUG_TO_PACK_ID: Record<string, number> = {
   "wowi-executive-pack": 6,
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
-
-// How often we poll our backend (which re-verifies with Midtrans) while the
-// bank transfer instructions modal is open, waiting for the customer to pay.
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 const STATUS_POLL_INTERVAL_MS = 5000;
 
 const schema = z.object({
@@ -43,7 +38,6 @@ const schema = z.object({
     errorMap: () => ({ message: "Please choose a bank" }),
   }),
 });
-
 type Form = z.infer<typeof schema>;
 
 const BANK_OPTIONS: { id: BankCode; label: string; logo: string }[] = [
@@ -52,14 +46,11 @@ const BANK_OPTIONS: { id: BankCode; label: string; logo: string }[] = [
   { id: "mandiri", label: "Mandiri Bill Payment", logo: "mandiri.png" },
 ];
 
-// Human-readable messages for the transaction_status once we detect it.
 const STATUS_MESSAGES: Record<string, string> = {
-  pending:
-    "We haven't detected your transfer yet. It can take a few minutes to arrive - feel free to check again shortly.",
+  pending: "We haven't detected your transfer yet. It can take a few minutes.",
   deny: "The payment was denied. Please try again.",
   cancel: "The payment was cancelled.",
-  expire:
-    "The payment window expired before we detected your transfer. Please try again.",
+  expire: "The payment window expired. Please try again.",
 };
 
 export default function PaymentPage({
@@ -69,8 +60,14 @@ export default function PaymentPage({
 }) {
   const { slug } = use(params);
   const router = useRouter();
-  const workspace = getWorkspaceBySlug(slug);
-  if (!workspace) notFound();
+
+  const [workspace, setWorkspace] = useState<Workspace | null>(
+    getWorkspaceBySlug(slug) || null,
+  );
+  const [loadingWs, setLoadingWs] = useState(!workspace);
+  const [packId, setPackId] = useState<number | null>(
+    SLUG_TO_PACK_ID[slug] || null,
+  );
 
   const [rentData, setRentData] = useState<{
     floor?: string;
@@ -81,9 +78,7 @@ export default function PaymentPage({
   }>({});
   const [done, setDone] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [bookingError, setBookingError] = useState<string>("");
-
-  // Bank transfer instructions modal state.
+  const [bookingError, setBookingError] = useState("");
   const [showBankModal, setShowBankModal] = useState(false);
   const [orderId, setOrderId] = useState<string | null>(null);
   const [transferBank, setTransferBank] = useState<BankCode | null>(null);
@@ -106,21 +101,45 @@ export default function PaymentPage({
     };
   }, []);
 
+  useEffect(() => {
+    if (workspace) return;
+    fetch(`${API_URL}/api/floor-packs`)
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) {
+          const packIdMatch = slug.match(/^pack-(\d+)$/);
+          const found = packIdMatch
+            ? result.data.find(
+                (p: { pack_id: number }) =>
+                  p.pack_id === Number(packIdMatch[1]),
+              )
+            : result.data.find(
+                (p: { pack_name: string }) =>
+                  p.pack_name.toLowerCase().replace(/\s+/g, "-") === slug,
+              );
+          if (found) {
+            setWorkspace(apiPackToWorkspace(found));
+            setPackId(found.pack_id);
+          }
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoadingWs(false));
+  }, [slug]);
+
   const {
     register,
     handleSubmit,
     watch,
     formState: { errors },
-  } = useForm<Form>({
-    resolver: zodResolver(schema),
-  });
+  } = useForm<Form>({ resolver: zodResolver(schema) });
   const selectedBank = watch("bank");
 
   const years = rentData.commitmentTerms
     ? parseInt(rentData.commitmentTerms) || 1
     : 1;
-  const yearly = workspace.monthlyPrice * years;
-  const tax = yearly * workspace.taxRate;
+  const yearly = workspace ? workspace.monthlyPrice * years : 0;
+  const tax = workspace ? yearly * workspace.taxRate : 0;
   const total = yearly + tax;
 
   const stopPolling = () => {
@@ -140,10 +159,6 @@ export default function PaymentPage({
     setTimeout(() => router.push("/account"), 3000);
   };
 
-  // Re-checks the definitive status from our backend (which itself
-  // re-verifies with Midtrans) rather than trusting a client-side timer
-  // alone. Used both for the background poll and the manual "I've paid"
-  // button.
   const checkStatus = async (id: string, { silent = false } = {}) => {
     if (!silent) setCheckingStatus(true);
     setStatusError("");
@@ -156,22 +171,15 @@ export default function PaymentPage({
       }
       if (["deny", "cancel", "expire"].includes(status)) {
         stopPolling();
-        setStatusError(
-          STATUS_MESSAGES[status] || `Payment status: ${status}.`,
-        );
+        setStatusError(STATUS_MESSAGES[status] || `Payment status: ${status}.`);
       } else if (!silent) {
         setStatusError(
-          STATUS_MESSAGES[status] ||
-            "Still waiting for your transfer to be detected.",
+          STATUS_MESSAGES[status] || "Still waiting for your transfer.",
         );
       }
     } catch (err) {
-      console.warn("checkStatus failed:", err instanceof Error ? err.message : err);
-      if (!silent) {
-        setStatusError(
-          "Could not check payment status right now. Please try again in a moment.",
-        );
-      }
+      if (!silent)
+        setStatusError("Could not check payment status. Please try again.");
     } finally {
       if (!silent) setCheckingStatus(false);
     }
@@ -183,9 +191,14 @@ export default function PaymentPage({
         bookingId,
         bank,
       );
-      const { payment, transaction_status, va_number, biller_code, bill_key, expiry_time } =
-        chargeResult.data;
-
+      const {
+        payment,
+        transaction_status,
+        va_number,
+        biller_code,
+        bill_key,
+        expiry_time,
+      } = chargeResult.data;
       setOrderId(payment.order_id);
       setTransferBank(bank);
       setVaNumber(va_number);
@@ -193,23 +206,19 @@ export default function PaymentPage({
       setBillKey(bill_key);
       setExpiryTime(expiry_time);
       setStatusError("");
-      setShowBankModal(true);
       setProcessing(false);
-
-      if (transaction_status === "settlement" || transaction_status === "capture") {
-        // Extremely unlikely for bank transfer, but handle gracefully if
-        // Midtrans ever reports it as already settled.
+      if (
+        transaction_status === "settlement" ||
+        transaction_status === "capture"
+      ) {
         finishSuccess();
         return;
       }
-
-      // Poll in the background so the booking confirms automatically once
-      // the transfer is detected, without the user needing to keep clicking.
-      pollRef.current = setInterval(() => {
-        checkStatus(payment.order_id, { silent: true });
-      }, STATUS_POLL_INTERVAL_MS);
+      // Redirect to account instead of showing bank modal
+      sessionStorage.removeItem(`rent-${slug}`);
+      sessionStorage.removeItem(`confirm-${slug}`);
+      router.push("/account");
     } catch (err) {
-      console.warn("startBankTransfer failed:", err instanceof Error ? err.message : err);
       setBookingError(
         err instanceof Error ? err.message : "Failed to create bank transfer.",
       );
@@ -217,46 +226,38 @@ export default function PaymentPage({
     }
   };
 
-  // Releases a booking that was created but never got a successful charge
-  // request (e.g. network error) so the floor doesn't stay stuck as
-  // "pending" forever and block other bookings for that period.
   const cancelBooking = async (bookingId: number, token: string) => {
     try {
       await fetch(`${API_URL}/api/bookings/${bookingId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
-    } catch (cleanupErr) {
-      console.warn(
-        "Failed to auto-cancel unpaid booking:",
-        cleanupErr instanceof Error ? cleanupErr.message : cleanupErr,
-      );
-    }
+    } catch {}
   };
 
   const onSubmit = async (formData: Form) => {
     setProcessing(true);
     setBookingError("");
-
     let bookingId: number | null = null;
     let token: string | null = null;
-
     try {
       token = localStorage.getItem("token");
-      const pack_id = SLUG_TO_PACK_ID[slug];
+      // Get pack_id: from mapping, from pack-{id} slug, or from loaded pack
+      const resolvedPackId =
+        SLUG_TO_PACK_ID[slug] ||
+        (slug.match(/^pack-(\d+)$/)
+          ? Number(slug.match(/^pack-(\d+)$/)![1])
+          : null) ||
+        packId;
       const floorNum = parseInt((rentData.floor || "").replace("Floor ", ""));
       const months = years * 12;
-
-      if (!token || !pack_id || !rentData.date || !floorNum) {
+      if (!token || !resolvedPackId || !rentData.date || !floorNum) {
         setBookingError(
           "Missing booking data. Please go back and fill in the details.",
         );
         setProcessing(false);
         return;
       }
-
-      // 1) Create the booking first (status: pending) - only a confirmed
-      // bank transfer below turns it into "confirmed".
       const res = await fetch(`${API_URL}/api/bookings`, {
         method: "POST",
         headers: {
@@ -264,43 +265,44 @@ export default function PaymentPage({
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          pack_id,
+          pack_id: resolvedPackId,
           floor_booked: floorNum,
           start_date: rentData.date,
           months,
         }),
       });
-
       const result = await res.json();
-
       if (!res.ok) {
-        setBookingError(
-          result.message || "Failed to create booking. Please try again.",
-        );
+        setBookingError(result.message || "Failed to create booking.");
         setProcessing(false);
         return;
       }
-
       bookingId = result.data.booking_id;
-
-      // 2) Ask Midtrans (via our backend) to create a bank transfer charge -
-      // this returns a VA number / bill key, no sensitive data is collected.
       await startBankTransfer(bookingId as number, formData.bank);
     } catch (err) {
-      console.warn("onSubmit failed:", err instanceof Error ? err.message : err);
-
-      if (bookingId && token) {
-        await cancelBooking(bookingId, token);
-      }
-
+      if (bookingId && token) await cancelBooking(bookingId, token);
       setBookingError(
         err instanceof Error
-          ? `Payment failed: ${err.message}${bookingId ? " (your booking attempt was cancelled, please try again)" : ""}`
-          : "Cannot connect to server. Please try again.",
+          ? `Payment failed: ${err.message}`
+          : "Cannot connect to server.",
       );
       setProcessing(false);
     }
   };
+
+  if (loadingWs)
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Loading...</p>
+      </div>
+    );
+
+  if (!workspace)
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Package not found.</p>
+      </div>
+    );
 
   return (
     <div className="min-h-screen bg-white">
@@ -311,13 +313,10 @@ export default function PaymentPage({
         >
           <ArrowLeft size={13} /> Back
         </button>
-
         <h1 className="font-serif text-2xl font-bold text-[#C9A36A] mb-6">
           Rent Details
         </h1>
-
         <BookingStepper step={3} />
-
         <div className="grid lg:grid-cols-3 gap-8">
           <motion.div
             initial={{ opacity: 0, y: 16 }}
@@ -325,7 +324,6 @@ export default function PaymentPage({
             className="lg:col-span-2 space-y-6"
           >
             <form onSubmit={handleSubmit(onSubmit)} id="pay-form">
-              {/* Billing Information */}
               <h2 className="font-semibold text-[#2B2B2B] mb-4">
                 Billing Information
               </h2>
@@ -353,26 +351,17 @@ export default function PaymentPage({
                   </div>
                 ))}
               </div>
-
-              {/* Payment Details */}
               <h2 className="font-semibold text-[#2B2B2B] mb-3">
                 Payment Method
               </h2>
               <p className="text-xs text-gray-400 mb-3">
-                Choose a bank to generate a Virtual Account (or Mandiri bill
-                key) for your transfer.
+                Choose a bank to generate a Virtual Account for your transfer.
               </p>
-
-              {/* Bank selector */}
               <div className="grid sm:grid-cols-3 gap-3 mb-2">
                 {BANK_OPTIONS.map((b) => (
                   <label
                     key={b.id}
-                    className={`flex items-center gap-2 cursor-pointer border rounded-md px-3 py-2.5 transition-all ${
-                      selectedBank === b.id
-                        ? "border-[#C9A36A] bg-amber-50"
-                        : "border-gray-200 hover:border-gray-300"
-                    }`}
+                    className={`flex items-center gap-2 cursor-pointer border rounded-md px-3 py-2.5 transition-all ${selectedBank === b.id ? "border-[#C9A36A] bg-amber-50" : "border-gray-200 hover:border-gray-300"}`}
                   >
                     <input
                       type="radio"
@@ -396,14 +385,9 @@ export default function PaymentPage({
                   {errors.bank.message}
                 </p>
               )}
-
               <div className="flex items-center gap-1.5 mt-3 text-[11px] text-gray-400">
-                <Landmark size={11} /> Secured by Midtrans - you transfer
-                directly from your own bank account, no card details are ever
-                collected
+                <Landmark size={11} /> Secured by Midtrans
               </div>
-
-              {/* Booking error */}
               {bookingError && (
                 <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
                   <p className="text-red-600 text-xs font-semibold">
@@ -412,8 +396,6 @@ export default function PaymentPage({
                 </div>
               )}
             </form>
-
-            {/* Buttons */}
             <div className="flex gap-3 pt-2">
               <button
                 type="button"
@@ -453,8 +435,6 @@ export default function PaymentPage({
               </button>
             </div>
           </motion.div>
-
-          {/* Right: Your Order */}
           <div>
             <div className="bg-white border border-gray-200 rounded-xl p-5 sticky top-24">
               <h4 className="text-xs font-bold text-[#2B2B2B] uppercase tracking-wider mb-4">
@@ -500,8 +480,6 @@ export default function PaymentPage({
           </div>
         </div>
       </div>
-
-      {/* Bank transfer (VA / Mandiri bill key) instructions modal */}
       <BankTransferModal
         open={showBankModal}
         bank={transferBank}
@@ -515,8 +493,6 @@ export default function PaymentPage({
         onCheckStatus={() => orderId && checkStatus(orderId)}
         onClose={() => setShowBankModal(false)}
       />
-
-      {/* Success overlay */}
       <AnimatePresence>
         {done && (
           <motion.div
@@ -537,8 +513,7 @@ export default function PaymentPage({
                 Booking Confirmed!
               </h2>
               <p className="text-sm text-gray-500">
-                Your workspace at <strong>{workspace.name}</strong> has been
-                booked. Redirecting to your account…
+                Redirecting to your account…
               </p>
             </motion.div>
           </motion.div>

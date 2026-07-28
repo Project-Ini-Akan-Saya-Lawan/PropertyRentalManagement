@@ -35,6 +35,16 @@ body {
   background: #c9a36a;
   border-radius: 3px;
 }
+/* Hides the scrollbar entirely while keeping the element scrollable - used
+   for small horizontally-scrollable strips (e.g. tab rows) where the site's
+   thick gold scrollbar would otherwise render as an ugly bar underneath. */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/old Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/WebKit */
+}
 /* Marquee carousel */
 .marquee-wrapper {
   overflow: hidden;
