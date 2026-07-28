@@ -279,8 +279,8 @@ export default function PropertyManagementPage() {
         </button>
       </div>
 
-      <div className="flex items-center gap-3 mb-5">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 mb-5">
+        <div className="relative w-full sm:flex-1 sm:max-w-xs">
           <Search
             size={13}
             className="absolute left-3 top-2.5 text-[#2B2B2B]/40"
@@ -306,123 +306,125 @@ export default function PropertyManagementPage() {
       </div>
 
       <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-[#F5F0E8]">
-            <tr>
-              {[
-                "Pack ID",
-                "Pack Name",
-                "Tower",
-                "Floor Range",
-                "Price/Year",
-                "Description",
-                "Actions",
-              ].map((h) => (
-                <th
-                  key={h}
-                  className="text-left text-[10px] font-bold text-[#2B2B2B]/60 uppercase tracking-wider px-4 py-3"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[700px]">
+            <thead className="bg-[#F5F0E8]">
               <tr>
-                <td
-                  colSpan={7}
-                  className="py-12 text-center text-sm text-[#2B2B2B]/30"
-                >
-                  Loading...
-                </td>
+                {[
+                  "Pack ID",
+                  "Pack Name",
+                  "Tower",
+                  "Floor Range",
+                  "Price/Year",
+                  "Description",
+                  "Actions",
+                ].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left text-[10px] font-bold text-[#2B2B2B]/60 uppercase tracking-wider px-4 py-3"
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ) : filtered.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="py-16 text-center">
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="w-12 h-12 bg-[#C9A36A]/10 rounded-full flex items-center justify-center">
-                      <Building2 size={22} className="text-[#C9A36A]" />
-                    </div>
-                    <p className="text-sm font-bold text-[#2B2B2B]">
-                      No packages found
-                    </p>
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              filtered.map((p) => (
-                <tr
-                  key={p.pack_id}
-                  className="border-t border-[#C9A36A]/10 hover:bg-[#F5F0E8]/50 transition-colors"
-                >
-                  <td className="px-4 py-3 text-xs font-bold text-[#C9A36A]">
-                    #{p.pack_id}
-                  </td>
-                  <td className="px-4 py-3 text-xs font-bold text-[#2B2B2B]">
-                    {p.pack_name}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-[#2B2B2B]/70">
-                    {getTowerName(p.property_id)}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-[#2B2B2B]/70">
-                    Floor {p.floor_range}
-                  </td>
-                  <td className="px-4 py-3 text-xs font-semibold text-[#2B2B2B]">
-                    Rp {Number(p.price).toLocaleString("id-ID")}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-[#2B2B2B]/70 max-w-[200px] truncate">
-                    {p.description || "-"}
-                  </td>
-                  <td className="px-4 py-3 relative">
-                    <button
-                      onClick={() =>
-                        setOpenMenu(openMenu === p.pack_id ? null : p.pack_id)
-                      }
-                      className="p-1.5 hover:bg-[#C9A36A]/10 rounded-lg transition-colors"
-                    >
-                      <MoreVertical size={14} className="text-[#2B2B2B]/50" />
-                    </button>
-                    {openMenu === p.pack_id && (
-                      <div className="absolute right-8 top-2 bg-white border-2 border-[#C9A36A]/20 rounded-xl shadow-lg z-20 w-32 overflow-hidden">
-                        <button
-                          onClick={() => {
-                            setSelected(p);
-                            setModal("view");
-                            setOpenMenu(null);
-                          }}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-[#2B2B2B] hover:bg-[#C9A36A]/10"
-                        >
-                          <Eye size={13} className="text-[#C9A36A]" /> View
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelected(p);
-                            setModal("edit");
-                            setOpenMenu(null);
-                          }}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-[#2B2B2B] hover:bg-[#C9A36A]/10"
-                        >
-                          <Pencil size={13} className="text-blue-500" /> Edit
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelected(p);
-                            setModal("delete");
-                            setOpenMenu(null);
-                          }}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-50"
-                        >
-                          <Trash2 size={13} /> Delete
-                        </button>
-                      </div>
-                    )}
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="py-12 text-center text-sm text-[#2B2B2B]/30"
+                  >
+                    Loading...
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-16 text-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-12 h-12 bg-[#C9A36A]/10 rounded-full flex items-center justify-center">
+                        <Building2 size={22} className="text-[#C9A36A]" />
+                      </div>
+                      <p className="text-sm font-bold text-[#2B2B2B]">
+                        No packages found
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((p) => (
+                  <tr
+                    key={p.pack_id}
+                    className="border-t border-[#C9A36A]/10 hover:bg-[#F5F0E8]/50 transition-colors"
+                  >
+                    <td className="px-4 py-3 text-xs font-bold text-[#C9A36A]">
+                      #{p.pack_id}
+                    </td>
+                    <td className="px-4 py-3 text-xs font-bold text-[#2B2B2B]">
+                      {p.pack_name}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-[#2B2B2B]/70">
+                      {getTowerName(p.property_id)}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-[#2B2B2B]/70">
+                      Floor {p.floor_range}
+                    </td>
+                    <td className="px-4 py-3 text-xs font-semibold text-[#2B2B2B]">
+                      Rp {Number(p.price).toLocaleString("id-ID")}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-[#2B2B2B]/70 max-w-[200px] truncate">
+                      {p.description || "-"}
+                    </td>
+                    <td className="px-4 py-3 relative">
+                      <button
+                        onClick={() =>
+                          setOpenMenu(openMenu === p.pack_id ? null : p.pack_id)
+                        }
+                        className="p-1.5 hover:bg-[#C9A36A]/10 rounded-lg transition-colors"
+                      >
+                        <MoreVertical size={14} className="text-[#2B2B2B]/50" />
+                      </button>
+                      {openMenu === p.pack_id && (
+                        <div className="absolute right-8 top-2 bg-white border-2 border-[#C9A36A]/20 rounded-xl shadow-lg z-20 w-32 overflow-hidden">
+                          <button
+                            onClick={() => {
+                              setSelected(p);
+                              setModal("view");
+                              setOpenMenu(null);
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-[#2B2B2B] hover:bg-[#C9A36A]/10"
+                          >
+                            <Eye size={13} className="text-[#C9A36A]" /> View
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelected(p);
+                              setModal("edit");
+                              setOpenMenu(null);
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-[#2B2B2B] hover:bg-[#C9A36A]/10"
+                          >
+                            <Pencil size={13} className="text-blue-500" /> Edit
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelected(p);
+                              setModal("delete");
+                              setOpenMenu(null);
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-50"
+                          >
+                            <Trash2 size={13} /> Delete
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
         <div className="px-4 py-3 border-t border-[#C9A36A]/10 bg-[#F5F0E8]/30">
           <p className="text-[11px] font-medium text-[#2B2B2B]/50">
             Showing {filtered.length} of {packs.length} packages

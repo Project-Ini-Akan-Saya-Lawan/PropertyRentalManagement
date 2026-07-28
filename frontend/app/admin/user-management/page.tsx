@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import {
   Download,
@@ -10,8 +9,6 @@ import {
   Trash2,
   X,
   Mail,
-  Home,
-  Calendar,
 } from "lucide-react";
 
 interface Tenant {
@@ -30,7 +27,6 @@ const STATUS_STYLE: Record<string, string> = {
   inactive: "bg-gray-100 text-gray-500 border border-gray-200",
   suspended: "bg-red-50 text-red-700 border border-red-200",
 };
-
 const STATUS_LABEL: Record<string, string> = {
   active: "Active",
   inactive: "Inactive",
@@ -163,7 +159,6 @@ export default function UserManagementPage() {
 
   const handleDelete = async () => {
     if (!selected) return;
-    // TODO: DELETE /api/users/:id (admin endpoint)
     setData(data.filter((u) => u.id !== selected.id));
     setModal(null);
     setSelected(null);
@@ -181,7 +176,7 @@ export default function UserManagementPage() {
 
   const stats = [
     {
-      label: "Total Users",
+      label: "Total",
       value: tenants.length,
       color: "bg-[#C9A36A]/10 text-[#C9A36A]",
       icon: Users,
@@ -208,45 +203,49 @@ export default function UserManagementPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
         <div>
           <h1
-            className="text-2xl font-bold text-[#2B2B2B]"
+            className="text-xl sm:text-2xl font-bold text-[#2B2B2B]"
             style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
           >
             User Management
           </h1>
-          <p className="text-xs font-medium text-[#2B2B2B]/50 mt-0.5">
-            Manage registered users (tenants & prospects)
+          <p className="text-xs font-medium text-[#2B2B2B]/50 mt-0.5 hidden sm:block">
+            Manage registered users
           </p>
         </div>
         <button
           onClick={() => exportCSV(tenants)}
-          className="flex items-center gap-1.5 border-2 border-[#C9A36A]/40 text-[#C9A36A] text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-[#C9A36A]/5 transition-colors"
+          className="flex items-center gap-1.5 border-2 border-[#C9A36A]/40 text-[#C9A36A] text-xs font-bold px-3 py-2 rounded-xl hover:bg-[#C9A36A]/5 transition-colors"
         >
-          <Download size={13} /> Export CSV
+          <Download size={13} />{" "}
+          <span className="hidden sm:inline">Export CSV</span>
         </button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      {/* Stats — 2x2 on mobile, 4 cols on desktop */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5">
         {stats.map((s) => {
           const Icon = s.icon;
           return (
             <div
               key={s.label}
-              className="bg-white border-2 border-[#C9A36A]/30 rounded-xl p-4 flex items-center gap-3 hover:shadow-md transition-all"
+              className="bg-white border-2 border-[#C9A36A]/30 rounded-xl p-3 sm:p-4 flex items-center gap-2 sm:gap-3"
             >
               <div
-                className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${s.color}`}
+                className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${s.color}`}
               >
-                <Icon size={15} />
+                <Icon size={14} />
               </div>
-              <div>
-                <p className="text-[10px] font-semibold text-[#2B2B2B]/50 uppercase tracking-wider">
+              <div className="min-w-0">
+                <p className="text-[9px] sm:text-[10px] font-semibold text-[#2B2B2B]/50 uppercase tracking-wider truncate">
                   {s.label}
                 </p>
-                <p className="text-xl font-bold text-[#2B2B2B]">{s.value}</p>
+                <p className="text-lg sm:text-xl font-bold text-[#2B2B2B]">
+                  {s.value}
+                </p>
               </div>
             </div>
           );
@@ -254,8 +253,8 @@ export default function UserManagementPage() {
       </div>
 
       {/* Search + Filter */}
-      <div className="flex items-center gap-3 mb-5">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mb-4">
+        <div className="relative flex-1">
           <Search
             size={13}
             className="absolute left-3 top-2.5 text-[#2B2B2B]/40"
@@ -267,12 +266,12 @@ export default function UserManagementPage() {
             className="w-full pl-8 pr-3 py-2 text-xs border-2 border-[#C9A36A]/30 rounded-lg focus:border-[#C9A36A] outline-none text-[#2B2B2B]"
           />
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1 flex-wrap">
           {["All", "Active", "Inactive", "Suspended"].map((s) => (
             <button
               key={s}
               onClick={() => setFilter(s)}
-              className={`px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${filter === s ? "bg-[#C9A36A] text-white" : "border-2 border-[#C9A36A]/30 text-[#2B2B2B] hover:border-[#C9A36A]"}`}
+              className={`px-2.5 py-2 text-xs font-semibold rounded-lg transition-colors ${filter === s ? "bg-[#C9A36A] text-white" : "border-2 border-[#C9A36A]/30 text-[#2B2B2B] hover:border-[#C9A36A]"}`}
             >
               {s}
             </button>
@@ -280,106 +279,105 @@ export default function UserManagementPage() {
         </div>
       </div>
 
-      {/* Table */}
+      {/* Table — scrollable on mobile */}
       <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-[#F5F0E8]">
-            <tr>
-              {["User", "Company", "Status", "Actions"].map((h) => (
-                <th
-                  key={h}
-                  className="text-left text-[10px] font-bold text-[#2B2B2B]/60 uppercase tracking-wider px-4 py-3"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[400px]">
+            <thead className="bg-[#F5F0E8]">
               <tr>
-                <td
-                  colSpan={4}
-                  className="py-16 text-center text-sm text-[#2B2B2B]/40"
-                >
-                  Loading users...
-                </td>
+                {["User", "Company", "Status", "Actions"].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left text-[10px] font-bold text-[#2B2B2B]/60 uppercase tracking-wider px-3 sm:px-4 py-3"
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ) : filtered.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="py-16 text-center">
-                  <Users size={28} className="text-[#C9A36A]/30 mx-auto mb-2" />
-                  <p className="text-sm font-bold text-[#2B2B2B]">
-                    No users found
-                  </p>
-                </td>
-              </tr>
-            ) : (
-              filtered.map((u) => (
-                <tr
-                  key={u.id}
-                  className="border-t border-[#C9A36A]/10 hover:bg-[#F5F0E8]/40 transition-colors"
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-full bg-[#C9A36A]/15 flex items-center justify-center flex-shrink-0">
-                        <User size={13} className="text-[#C9A36A]" />
-                      </div>
-                      <div>
-                        <p className="text-xs font-bold text-[#2B2B2B]">
-                          {u.name}
-                        </p>
-                        <p className="text-[10px] text-[#2B2B2B]/50 flex items-center gap-1">
-                          <Mail size={9} /> {u.email}
-                        </p>
-                        {u.phone && (
-                          <p className="text-[10px] text-[#2B2B2B]/40">
-                            {u.phone}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-[#2B2B2B]/70">
-                    {u.company || "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`text-[10px] font-bold px-2 py-1 rounded-full ${STATUS_STYLE[u.status] || "bg-gray-50 text-gray-500"}`}
-                    >
-                      {STATUS_LABEL[u.status] || u.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => {
-                          setSelected(u);
-                          setNewStatus(u.status);
-                          setModal("edit");
-                        }}
-                        className="p-1.5 hover:bg-[#C9A36A]/10 rounded-lg transition-colors"
-                        title="Edit Status"
-                      >
-                        <Pencil size={13} className="text-[#C9A36A]" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setSelected(u);
-                          setModal("delete");
-                        }}
-                        className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 size={13} className="text-red-400" />
-                      </button>
-                    </div>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="py-12 text-center text-sm text-[#2B2B2B]/40"
+                  >
+                    Loading...
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="py-12 text-center">
+                    <Users
+                      size={28}
+                      className="text-[#C9A36A]/30 mx-auto mb-2"
+                    />
+                    <p className="text-sm font-bold text-[#2B2B2B]">
+                      No users found
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((u) => (
+                  <tr
+                    key={u.id}
+                    className="border-t border-[#C9A36A]/10 hover:bg-[#F5F0E8]/40 transition-colors"
+                  >
+                    <td className="px-3 sm:px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-[#C9A36A]/15 flex items-center justify-center flex-shrink-0">
+                          <User size={12} className="text-[#C9A36A]" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-[#2B2B2B] truncate">
+                            {u.name}
+                          </p>
+                          <p className="text-[10px] text-[#2B2B2B]/50 truncate max-w-[120px] sm:max-w-none">
+                            <Mail size={8} className="inline mr-0.5" />
+                            {u.email}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 sm:px-4 py-3 text-xs text-[#2B2B2B]/70 max-w-[80px] sm:max-w-none truncate">
+                      {u.company || "—"}
+                    </td>
+                    <td className="px-3 sm:px-4 py-3">
+                      <span
+                        className={`text-[10px] font-bold px-2 py-1 rounded-full whitespace-nowrap ${STATUS_STYLE[u.status] || "bg-gray-50 text-gray-500"}`}
+                      >
+                        {STATUS_LABEL[u.status] || u.status}
+                      </span>
+                    </td>
+                    <td className="px-3 sm:px-4 py-3">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => {
+                            setSelected(u);
+                            setNewStatus(u.status);
+                            setModal("edit");
+                          }}
+                          className="p-1.5 hover:bg-[#C9A36A]/10 rounded-lg transition-colors"
+                        >
+                          <Pencil size={13} className="text-[#C9A36A]" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelected(u);
+                            setModal("delete");
+                          }}
+                          className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                          <Trash2 size={13} className="text-red-400" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
         <div className="px-4 py-3 border-t border-[#C9A36A]/10 bg-[#F5F0E8]/30">
           <p className="text-[11px] font-medium text-[#2B2B2B]/50">
             Showing {filtered.length} of {tenants.length} users
@@ -387,7 +385,7 @@ export default function UserManagementPage() {
         </div>
       </div>
 
-      {/* Edit Status Modal */}
+      {/* Edit Modal */}
       {modal === "edit" && selected && (
         <Modal
           title="Update User Status"
@@ -405,7 +403,9 @@ export default function UserManagementPage() {
                 <p className="text-sm font-bold text-[#2B2B2B]">
                   {selected.name}
                 </p>
-                <p className="text-xs text-[#2B2B2B]/50">{selected.email}</p>
+                <p className="text-xs text-[#2B2B2B]/50 break-all">
+                  {selected.email}
+                </p>
               </div>
             </div>
             <label className="text-xs font-semibold text-[#2B2B2B] block mb-1.5">
@@ -435,7 +435,7 @@ export default function UserManagementPage() {
               onClick={handleUpdateStatus}
               className="px-5 py-2 text-xs font-bold bg-[#C9A36A] hover:bg-[#A8834A] text-white rounded-lg"
             >
-              Save Changes
+              Save
             </button>
           </div>
         </Modal>

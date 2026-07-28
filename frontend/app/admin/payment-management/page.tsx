@@ -1,4 +1,6 @@
 "use client";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { useState, useEffect } from "react";
 import {
   Download,
@@ -220,7 +222,108 @@ export default function PaymentManagementPage() {
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   const handleExport = () => {
-    alert(`Exporting as ${exportFormat}... (connect to API)`);
+    const date = new Date().toISOString().slice(0, 10);
+
+    if (exportFormat === "CSV" || exportFormat === "Excel") {
+      const headers = [
+        "Invoice #",
+        "Tenant",
+        "Property",
+        "Date",
+        "Method",
+        "Amount",
+        "Status",
+      ];
+      const rows = transactions.map((t) => [
+        t.invoiceId,
+        t.tenant,
+        t.property,
+        t.date,
+        t.method,
+        t.amount,
+        t.status,
+      ]);
+      const csv = [
+        headers.join(","),
+        ...rows.map((r) => r.map((c) => `"${c}"`).join(",")),
+      ].join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Transactions_${date}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (exportFormat === "PDF") {
+      const doc = new jsPDF();
+      doc.setFontSize(18);
+      doc.setTextColor(201, 163, 106);
+      doc.text("Rupiah Building", 14, 18);
+      doc.setFontSize(12);
+      doc.setTextColor(43, 43, 43);
+      doc.text("Revenue Management Report", 14, 28);
+      doc.setFontSize(9);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Generated: ${date}`, 14, 36);
+
+      // Summary
+      doc.setFontSize(10);
+      doc.setTextColor(43, 43, 43);
+      doc.text(
+        `Monthly Revenue: ${thisMonth > 0 ? "Rp " + (thisMonth / 1_000_000).toFixed(0) + "M" : "—"}`,
+        14,
+        46,
+      );
+      doc.text(
+        `Total Revenue: ${paidTotal > 0 ? "Rp " + (paidTotal / 1_000_000).toFixed(0) + "M" : "—"}`,
+        14,
+        54,
+      );
+      doc.text(`Total Transactions: ${transactions.length}`, 14, 62);
+
+      autoTable(doc, {
+        head: [
+          [
+            "Invoice #",
+            "Tenant",
+            "Property",
+            "Date",
+            "Method",
+            "Amount",
+            "Status",
+          ],
+        ],
+        body: transactions.map((t) => [
+          t.invoiceId,
+          t.tenant,
+          t.property,
+          t.date,
+          t.method,
+          t.amount,
+          t.status,
+        ]),
+        startY: 70,
+        styles: { fontSize: 8, cellPadding: 3 },
+        headStyles: {
+          fillColor: [201, 163, 106],
+          textColor: 255,
+          fontStyle: "bold",
+        },
+        alternateRowStyles: { fillColor: [245, 240, 232] },
+        margin: { left: 14, right: 14 },
+      });
+      doc.save(`Transactions_${date}.pdf`);
+    } else if (exportFormat === "JSON") {
+      const json = JSON.stringify(transactions, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Transactions_${date}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
     setModal(null);
   };
 
