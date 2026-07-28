@@ -56,6 +56,13 @@ function LoginForm() {
       // Cek role_id — 1 = admin
       if (result.user.role_id === 1) {
         localStorage.setItem("isAdmin", "true");
+
+        // Set cookie langsung di sini (bukan lewat fungsi/handler lain),
+        // hanya untuk admin, karena middleware.ts jalan di server dan
+        // butuh cookie (bukan localStorage) untuk menjaga /admin/*.
+        document.cookie = `token=${result.token}; path=/; max-age=86400; sameSite=Lax`;
+        document.cookie = `isAdmin=true; path=/; max-age=86400; sameSite=Lax`;
+
         router.push("/admin/dashboard");
       } else {
         router.push(redirect || "/account");
