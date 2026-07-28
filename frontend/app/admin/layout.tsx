@@ -96,6 +96,9 @@ export default function AdminLayout({
     ["isAdmin", "isLoggedIn", "token", "user", "userEmail"].forEach((k) =>
       localStorage.removeItem(k),
     );
+    // Hapus cookie langsung di sini (bukan lewat fungsi/handler lain).
+    document.cookie = "token=; path=/; max-age=0";
+    document.cookie = "isAdmin=; path=/; max-age=0";
     router.push("/");
   };
 

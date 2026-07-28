@@ -50,6 +50,9 @@ export default function Navbar() {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     localStorage.removeItem("userEmail");
+    // Hapus cookie langsung di sini (bukan lewat fungsi/handler lain).
+    document.cookie = "token=; path=/; max-age=0";
+    document.cookie = "isAdmin=; path=/; max-age=0";
     setIsLoggedIn(false);
     setIsAdmin(false);
     setUsername("");
