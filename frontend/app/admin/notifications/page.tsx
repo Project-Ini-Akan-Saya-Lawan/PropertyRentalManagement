@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Bell,
   CheckCircle,
@@ -55,7 +55,6 @@ export default function NotificationsPage() {
   const [selected, setSelected] = useState<Notification | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
-  // Mobile: show list or detail
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
 
   useEffect(() => {
@@ -99,7 +98,7 @@ export default function NotificationsPage() {
       .catch((err) => console.error("Failed to fetch notifications:", err));
   }, []);
 
-  const markRead = (id: string) => {
+  const markRead = useCallback((id: string) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
     );
@@ -108,35 +107,36 @@ export default function NotificationsPage() {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}` },
     }).catch(console.error);
-  };
+  }, []);
 
-  const markAllRead = () => {
+  const markAllRead = useCallback(() => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     const token = localStorage.getItem("token");
     fetch(`${API_URL}/api/notifications/read-all`, {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}` },
     }).catch(console.error);
-  };
+  }, []);
 
-  const deleteNotif = (id: string) => {
+  const deleteNotif = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
-    if (selected?.id === id) {
-      setSelected(null);
-      setMobileView("list");
-    }
+    setSelected((prev) => (prev?.id === id ? null : prev));
+    setMobileView("list");
     const token = localStorage.getItem("token");
     fetch(`${API_URL}/api/notifications/${id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     }).catch(console.error);
-  };
+  }, []);
 
-  const handleSelect = (n: Notification) => {
-    setSelected(n);
-    setMobileView("detail");
-    if (!n.read) markRead(n.id);
-  };
+  const handleSelect = useCallback(
+    (n: Notification) => {
+      setSelected(n);
+      setMobileView("detail");
+      if (!n.read) markRead(n.id);
+    },
+    [markRead],
+  );
 
   const filtered = notifications.filter((n) => {
     const ms =
@@ -153,99 +153,14 @@ export default function NotificationsPage() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const DetailPanel = () =>
-    selected ? (
-      <div className="flex flex-col h-full">
-        {/* Mobile back button */}
-        <div className="md:hidden px-4 py-3 border-b border-[#C9A36A]/30">
-          <button
-            onClick={() => {
-              setMobileView("list");
-              setSelected(null);
-            }}
-            className="flex items-center gap-1.5 text-xs font-semibold text-[#C9A36A]"
-          >
-            <ArrowLeft size={13} /> Back to notifications
-          </button>
-        </div>
-        <div className="px-4 sm:px-6 py-4 border-b border-[#C9A36A]/30 flex items-start justify-between">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-2 flex-wrap">
-              <div
-                className={`w-6 h-6 rounded-full ${TYPE_BG[selected.type]} flex items-center justify-center flex-shrink-0`}
-              >
-                {TYPE_ICON[selected.type]}
-              </div>
-              <span className="text-[10px] font-bold text-[#2B2B2B]/50 uppercase">
-                {selected.type}
-              </span>
-            </div>
-            <h2 className="text-sm sm:text-base font-bold text-[#2B2B2B] mb-1">
-              {selected.subject}
-            </h2>
-            <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-[#2B2B2B]/50">
-              <span className="font-semibold">{selected.from}</span>
-              <span className="hidden sm:inline">·</span>
-              <span className="hidden sm:inline">{selected.fromEmail}</span>
-              <span>·</span>
-              <span>
-                {selected.date}, {selected.time}
-              </span>
-            </div>
-          </div>
-          <button
-            onClick={() => deleteNotif(selected.id)}
-            className="p-2 hover:bg-red-50 rounded-lg transition-colors ml-2 flex-shrink-0"
-          >
-            <Trash2 size={15} className="text-red-400" />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5">
-          <div className="bg-[#F5F0E8]/40 rounded-2xl p-4 sm:p-5">
-            <pre className="text-sm text-[#2B2B2B]/80 leading-relaxed whitespace-pre-wrap font-sans">
-              {selected.body}
-            </pre>
-          </div>
-        </div>
-        <div className="px-4 sm:px-6 py-4 border-t border-[#C9A36A]/30 flex gap-2">
-          <button
-            onClick={() => deleteNotif(selected.id)}
-            className="flex items-center gap-1.5 border-2 border-red-200 text-red-500 text-xs font-semibold px-4 py-2 rounded-xl hover:bg-red-50 transition-colors"
-          >
-            <Trash2 size={13} /> Delete
-          </button>
-          <button
-            onClick={() => {
-              setSelected(null);
-              setMobileView("list");
-            }}
-            className="flex items-center gap-1.5 border-2 border-[#C9A36A]/30 text-[#2B2B2B] text-xs font-semibold px-4 py-2 rounded-xl hover:bg-[#F5F0E8] transition-colors ml-auto"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    ) : (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3">
-        <div className="w-16 h-16 bg-[#C9A36A]/10 rounded-full flex items-center justify-center">
-          <Mail size={28} className="text-[#C9A36A]" />
-        </div>
-        <p className="text-sm font-bold text-[#2B2B2B]">
-          Select a notification
-        </p>
-        <p className="text-xs text-[#2B2B2B]/40">
-          Click any notification to read it
-        </p>
-      </div>
-    );
-
-  const ListPanel = () => (
+  // List JSX — inline, not a sub-component
+  const listJSX = (
     <div className="flex flex-col h-full">
       <div className="p-3 border-b border-[#C9A36A]/30">
         <div className="relative mb-2">
           <Search
             size={12}
-            className="absolute left-3 top-2.5 text-[#2B2B2B]/40"
+            className="absolute left-3 top-2.5 text-[#2B2B2B]/40 pointer-events-none"
           />
           <input
             value={search}
@@ -324,9 +239,89 @@ export default function NotificationsPage() {
     </div>
   );
 
+  // Detail JSX — inline
+  const detailJSX = selected ? (
+    <div className="flex flex-col h-full">
+      <div className="md:hidden px-4 py-3 border-b border-[#C9A36A]/30">
+        <button
+          onClick={() => {
+            setMobileView("list");
+            setSelected(null);
+          }}
+          className="flex items-center gap-1.5 text-xs font-semibold text-[#C9A36A]"
+        >
+          <ArrowLeft size={13} /> Back
+        </button>
+      </div>
+      <div className="px-4 sm:px-6 py-4 border-b border-[#C9A36A]/30 flex items-start justify-between">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-2">
+            <div
+              className={`w-6 h-6 rounded-full ${TYPE_BG[selected.type]} flex items-center justify-center flex-shrink-0`}
+            >
+              {TYPE_ICON[selected.type]}
+            </div>
+            <span className="text-[10px] font-bold text-[#2B2B2B]/50 uppercase">
+              {selected.type}
+            </span>
+          </div>
+          <h2 className="text-sm sm:text-base font-bold text-[#2B2B2B] mb-1">
+            {selected.subject}
+          </h2>
+          <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-[#2B2B2B]/50">
+            <span className="font-semibold">{selected.from}</span>
+            <span className="hidden sm:inline">· {selected.fromEmail}</span>
+            <span>
+              · {selected.date}, {selected.time}
+            </span>
+          </div>
+        </div>
+        <button
+          onClick={() => deleteNotif(selected.id)}
+          className="p-2 hover:bg-red-50 rounded-lg transition-colors ml-2 flex-shrink-0"
+        >
+          <Trash2 size={15} className="text-red-400" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5">
+        <div className="bg-[#F5F0E8]/40 rounded-2xl p-4 sm:p-5">
+          <pre className="text-sm text-[#2B2B2B]/80 leading-relaxed whitespace-pre-wrap font-sans">
+            {selected.body}
+          </pre>
+        </div>
+      </div>
+      <div className="px-4 sm:px-6 py-4 border-t border-[#C9A36A]/30 flex gap-2">
+        <button
+          onClick={() => deleteNotif(selected.id)}
+          className="flex items-center gap-1.5 border-2 border-red-200 text-red-500 text-xs font-semibold px-4 py-2 rounded-xl hover:bg-red-50 transition-colors"
+        >
+          <Trash2 size={13} /> Delete
+        </button>
+        <button
+          onClick={() => {
+            setSelected(null);
+            setMobileView("list");
+          }}
+          className="flex items-center gap-1.5 border-2 border-[#C9A36A]/30 text-[#2B2B2B] text-xs font-semibold px-4 py-2 rounded-xl hover:bg-[#F5F0E8] transition-colors ml-auto"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  ) : (
+    <div className="flex-1 flex flex-col items-center justify-center gap-3">
+      <div className="w-16 h-16 bg-[#C9A36A]/10 rounded-full flex items-center justify-center">
+        <Mail size={28} className="text-[#C9A36A]" />
+      </div>
+      <p className="text-sm font-bold text-[#2B2B2B]">Select a notification</p>
+      <p className="text-xs text-[#2B2B2B]/40">
+        Click any notification to read it
+      </p>
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <h1
@@ -350,21 +345,20 @@ export default function NotificationsPage() {
         </button>
       </div>
 
-      {/* Desktop: side by side | Mobile: toggle list/detail */}
       <div className="flex-1 min-h-0" style={{ height: "calc(100vh - 200px)" }}>
-        {/* Desktop layout */}
+        {/* Desktop */}
         <div className="hidden md:flex gap-4 h-full">
           <div className="w-80 flex-shrink-0 flex flex-col border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden bg-white">
-            <ListPanel />
+            {listJSX}
           </div>
           <div className="flex-1 border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden bg-white flex flex-col">
-            <DetailPanel />
+            {detailJSX}
           </div>
         </div>
 
-        {/* Mobile layout */}
+        {/* Mobile */}
         <div className="md:hidden h-full border-2 border-[#C9A36A]/30 rounded-2xl overflow-hidden bg-white flex flex-col">
-          {mobileView === "list" ? <ListPanel /> : <DetailPanel />}
+          {mobileView === "list" ? listJSX : detailJSX}
         </div>
       </div>
     </div>
