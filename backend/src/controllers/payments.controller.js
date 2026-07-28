@@ -104,7 +104,8 @@ const chargeBankTransferPayment = async (req, res) => {
     // reverse). Converting NOW() to the Asia/Jakarta wall-clock reading
     // makes the comparison correct regardless of session TimeZone.
     const existingPayment = await client.query(
-      `SELECT * FROM Payments
+      `SELECT *, to_char(expiry_time, 'YYYY-MM-DD HH24:MI:SS') AS expiry_time
+       FROM Payments
        WHERE booking_id = $1
          AND status IN ('paid', 'challenge', 'pending')
          AND (expiry_time IS NULL OR expiry_time > (NOW() AT TIME ZONE 'Asia/Jakarta'))

@@ -30,8 +30,18 @@ const getBookingById = async (req, res) => {
     if (booking.rows.length === 0) {
       return res.status(404).json({ message: "Booking not found." });
     }
+    // expiry_time must come back as the same raw "yyyy-MM-dd HH:mm:ss" (WIB
+    // wall-clock, no timezone suffix) string the frontend already expects -
+    // see the comment in payments.controller.js's chargeBankTransferPayment.
+    // Without the explicit to_char() cast here, node-postgres turns the
+    // TIMESTAMP column into a JS Date and Express serializes it as a full
+    // ISO string with a trailing "Z". The frontend's isPaymentStillValid()
+    // then appends "+07:00" after that "Z", producing an Invalid Date -
+    // which makes every existing payment look expired on reload, even
+    // seconds after it was created.
     const payments = await pool.query(
-      "SELECT * FROM Payments WHERE booking_id = $1",
+      `SELECT *, to_char(expiry_time, 'YYYY-MM-DD HH24:MI:SS') AS expiry_time
+       FROM Payments WHERE booking_id = $1`,
       [id],
     );
     res
