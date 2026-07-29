@@ -454,7 +454,7 @@ export default function AdminDashboardPage() {
             </div>
             <div>
               <p className="text-xs font-bold text-[#2B2B2B] group-hover:text-white transition-colors">
-                Add Property
+                Manage Property
               </p>
               <p className="text-[10px] font-medium text-[#2B2B2B]/50 group-hover:text-white/70 transition-colors">
                 Register a new luxury unit
