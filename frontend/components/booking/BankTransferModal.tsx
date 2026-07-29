@@ -43,9 +43,14 @@ function useCountdown(expiryTime: string | null) {
       setLabel("");
       return;
     }
-    // Midtrans expiry_time is "yyyy-MM-dd HH:mm:ss" in the merchant's
-    // configured timezone (WIB/Asia/Jakarta by default for ID accounts).
-    const expiry = new Date(expiryTime.replace(" ", "T"));
+    // Midtrans returns expiry_time as "yyyy-MM-dd HH:mm:ss" representing
+    // WIB (GMT+7) with NO timezone suffix. If we just do
+    // `new Date(expiryTime.replace(" ", "T"))`, JS parses it as *local*
+    // time in whatever timezone the browser/device happens to be in - if
+    // that isn't WIB, the countdown is off by hours and can show
+    // "Expired" immediately. Appending +07:00 makes the offset explicit
+    // so this works regardless of the viewer's local timezone.
+    const expiry = new Date(`${expiryTime.replace(" ", "T")}+07:00`);
 
     const tick = () => {
       const diffMs = expiry.getTime() - Date.now();

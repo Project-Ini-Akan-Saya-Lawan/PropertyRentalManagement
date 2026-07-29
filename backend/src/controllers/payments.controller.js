@@ -89,17 +89,48 @@ const chargeBankTransferPayment = async (req, res) => {
       });
     }
 
+    // Kalau booking ini sudah punya payment yang masih valid (paid, atau
+    // pending/challenge dan belum expired), jangan bikin charge Midtrans
+    // baru lagi - itu bikin VA/order_id baru setiap kali user klik "Pay
+    // Now" padahal VA sebelumnya masih bisa dipakai. Balikin payment yang
+    // sudah ada saja dengan response 200 (bukan error), supaya frontend
+    // bisa langsung nampilin VA yang sama.
+    // Payments.expiry_time is stored as the raw "yyyy-MM-dd HH:mm:ss"
+    // string Midtrans gives us, which represents WIB (GMT+7) wall-clock
+    // time with NO timezone info attached (it's a plain `timestamp`
+    // column). Comparing it directly to NOW() would silently depend on
+    // this Postgres session's TimeZone setting - if that isn't
+    // Asia/Jakarta, a still-valid VA can look already expired (or the
+    // reverse). Converting NOW() to the Asia/Jakarta wall-clock reading
+    // makes the comparison correct regardless of session TimeZone.
     const existingPayment = await client.query(
-      `SELECT payment_id, status FROM Payments
-       WHERE booking_id = $1 AND status IN ('paid', 'challenge')
+      `SELECT *, to_char(expiry_time, 'YYYY-MM-DD HH24:MI:SS') AS expiry_time
+       FROM Payments
+       WHERE booking_id = $1
+         AND status IN ('paid', 'challenge', 'pending')
+         AND (expiry_time IS NULL OR expiry_time > (NOW() AT TIME ZONE 'Asia/Jakarta'))
        ORDER BY created_at DESC LIMIT 1`,
       [booking_id],
     );
 
     if (existingPayment.rows.length > 0) {
       await client.query("ROLLBACK");
-      return res.status(409).json({
-        message: "This booking already has a paid or pending payment.",
+      const existing = existingPayment.rows[0];
+      return res.status(200).json({
+        message: "Existing payment found for this booking.",
+        data: {
+          payment: existing,
+          // paymentService di frontend cuma cek transaction_status ===
+          // "settlement"/"capture" untuk anggap lunas; status kita sendiri
+          // sudah "paid" jadi dipetakan balik ke "settlement" di sini.
+          transaction_status:
+            existing.status === "paid" ? "settlement" : existing.status,
+          bank: existing.bank,
+          va_number: existing.va_number,
+          biller_code: existing.biller_code,
+          bill_key: existing.bill_key,
+          expiry_time: existing.expiry_time,
+        },
       });
     }
 
