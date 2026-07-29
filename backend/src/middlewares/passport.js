@@ -49,9 +49,14 @@ passport.use(
         }
 
         // 3. User baru -> insert
+        // role_id is set explicitly here (matches local signup in
+        // auth.controller.js) because the Role_id column has no DB-level
+        // DEFAULT - leaving it out of the INSERT silently produces NULL,
+        // which then gets filtered out of the admin User Management page
+        // (it only shows users with role_id === 2).
         const newUser = await pool.query(
-          `INSERT INTO Users (username, email, hashed_password, auth_provider, google_id)
-           VALUES ($1, $2, NULL, 'google', $3)
+          `INSERT INTO Users (username, email, hashed_password, auth_provider, google_id, role_id)
+           VALUES ($1, $2, NULL, 'google', $3, 2)
            RETURNING *`,
           [name || email, email, googleId]
         );
