@@ -1,5 +1,4 @@
 "use client";
-
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -9,8 +8,10 @@ import { motion } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import BookingStepper from "@/components/booking/BookingStepper";
 import BookingSummary from "@/components/booking/BookingSummary";
-import { getWorkspaceBySlug } from "@/data/workspaces";
-import { notFound } from "next/navigation";
+import { getWorkspaceBySlug, apiPackToWorkspace } from "@/data/workspaces";
+import { Workspace } from "@/types";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 const schema = z.object({
   firstName: z.string().min(1, "Required"),
@@ -21,7 +22,6 @@ const schema = z.object({
     errorMap: () => ({ message: "You must accept the terms" }),
   }),
 });
-
 type Form = z.infer<typeof schema>;
 
 export default function ConfirmDetailsPage({
@@ -31,18 +31,44 @@ export default function ConfirmDetailsPage({
 }) {
   const { slug } = use(params);
   const router = useRouter();
-  const workspace = getWorkspaceBySlug(slug);
-  if (!workspace) notFound();
 
+  const [workspace, setWorkspace] = useState<Workspace | null>(
+    getWorkspaceBySlug(slug) || null,
+  );
+  const [loading, setLoading] = useState(!workspace);
   const [rentData, setRentData] = useState<{
     floor?: string;
     type?: string;
     date?: string;
+    commitmentTerms?: string;
   }>({});
 
   useEffect(() => {
     const raw = sessionStorage.getItem(`rent-${slug}`);
     if (raw) setRentData(JSON.parse(raw));
+  }, [slug]);
+
+  useEffect(() => {
+    if (workspace) return;
+    fetch(`${API_URL}/api/floor-packs`)
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) {
+          const packIdMatch = slug.match(/^pack-(\d+)$/);
+          const found = packIdMatch
+            ? result.data.find(
+                (p: { pack_id: number }) =>
+                  p.pack_id === Number(packIdMatch[1]),
+              )
+            : result.data.find(
+                (p: { pack_name: string }) =>
+                  p.pack_name.toLowerCase().replace(/\s+/g, "-") === slug,
+              );
+          if (found) setWorkspace(apiPackToWorkspace(found));
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, [slug]);
 
   const {
@@ -58,6 +84,20 @@ export default function ConfirmDetailsPage({
     router.push(`/workspace/${slug}/rent-details/payment`);
   };
 
+  if (loading)
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Loading...</p>
+      </div>
+    );
+
+  if (!workspace)
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Package not found.</p>
+      </div>
+    );
+
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
@@ -67,15 +107,11 @@ export default function ConfirmDetailsPage({
         >
           <ArrowLeft size={13} /> Back
         </button>
-
         <h1 className="font-serif text-2xl font-bold text-[#C9A36A] mb-6">
           Rent Details
         </h1>
-
         <BookingStepper step={2} />
-
         <div className="grid lg:grid-cols-3 gap-8">
-          {/* Form */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
@@ -111,7 +147,6 @@ export default function ConfirmDetailsPage({
                   )}
                 </div>
               </div>
-
               <div>
                 <input
                   {...register("email")}
@@ -125,7 +160,6 @@ export default function ConfirmDetailsPage({
                   </p>
                 )}
               </div>
-
               <div>
                 <input
                   {...register("phone")}
@@ -139,8 +173,6 @@ export default function ConfirmDetailsPage({
                   </p>
                 )}
               </div>
-
-              {/* Terms */}
               <div className="mt-2">
                 <h3 className="font-semibold text-sm text-[#2B2B2B] mb-2">
                   Terms &amp; Eligibility
@@ -169,7 +201,6 @@ export default function ConfirmDetailsPage({
                   </p>
                 )}
               </div>
-
               <div className="flex gap-3 pt-1">
                 <button
                   type="button"
@@ -187,13 +218,12 @@ export default function ConfirmDetailsPage({
               </div>
             </form>
           </motion.div>
-
-          {/* Summary */}
           <BookingSummary
             workspace={workspace}
             floor={rentData.floor}
             type={rentData.type}
             date={rentData.date}
+            commitmentTerms={rentData.commitmentTerms}
           />
         </div>
       </div>

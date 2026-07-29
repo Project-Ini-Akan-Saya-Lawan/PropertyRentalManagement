@@ -38,7 +38,7 @@ export default function MembersSection() {
           initial={{ opacity: 0, y: 12 }}
           animate={inView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.5, delay: 0.1 }}
-          className="text-xs text-gray-400 whitespace-nowrap"
+          className="text-xs text-gray-400 max-w-2xl"
         >
           With 15 years of expertise in flexible workspace solutions, we have
           empowered businesses of all sizes to enhance their flexible working
@@ -64,6 +64,16 @@ export default function MembersSection() {
           }
           .marquee-inner:hover {
             animation-play-state: paused;
+          }
+          /* Track width-nya fixed (nggak responsive), jadi kecepatan
+             px/detik-nya sama di semua device. Di layar sempit, tiap logo
+             makan porsi layar yang jauh lebih besar sehingga gerakannya
+             kelihatan lebih "lambat" secara relatif. Durasi dipersingkat
+             di mobile supaya kecepatan relatifnya konsisten dengan desktop. */
+          @media (max-width: 640px) {
+            .marquee-inner {
+              animation-duration: 10s;
+            }
           }
         `}</style>
 

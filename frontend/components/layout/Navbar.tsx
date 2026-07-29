@@ -19,11 +19,13 @@ export default function Navbar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [username, setUsername] = useState("");
 
   useEffect(() => {
     const loggedIn = !!localStorage.getItem("isLoggedIn");
     setIsLoggedIn(loggedIn);
+    setIsAdmin(!!localStorage.getItem("isAdmin"));
     if (loggedIn) {
       const stored = localStorage.getItem("user");
       if (stored) {
@@ -44,18 +46,31 @@ export default function Navbar() {
 
   const handleLogout = () => {
     localStorage.removeItem("isLoggedIn");
+    localStorage.removeItem("isAdmin");
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     localStorage.removeItem("userEmail");
+    // Hapus cookie langsung di sini (bukan lewat fungsi/handler lain).
+    document.cookie = "token=; path=/; max-age=0";
+    document.cookie = "isAdmin=; path=/; max-age=0";
     setIsLoggedIn(false);
+    setIsAdmin(false);
     setUsername("");
     router.push("/");
   };
 
   return (
     <>
-      <header className="fixed top-0 inset-x-0 z-50 bg-white border-b border-gray-200 h-[72px]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-full flex items-center justify-between gap-8">
+      <header
+        className={cn(
+          "fixed top-0 left-0 right-0 w-full z-50 bg-white border-b border-gray-200 h-[72px] overflow-hidden",
+          // Force a dedicated compositing layer so mobile browsers (esp. iOS
+          // Safari) paint this fixed header immediately on load, instead of
+          // waiting for a scroll/touch event to trigger a repaint.
+          "[transform:translateZ(0)] [-webkit-transform:translateZ(0)] [backface-visibility:hidden] [-webkit-backface-visibility:hidden]",
+        )}
+      >
+        <div className="w-full px-4 sm:px-6 h-full flex items-center justify-between overflow-hidden">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 flex-shrink-0">
             <div className="relative w-9 h-9">
@@ -67,7 +82,7 @@ export default function Navbar() {
                 priority
               />
             </div>
-            <span className="font-semibold text-[15px] text-[#2B2B2B] tracking-wide uppercase">
+            <span className="hidden xs:inline font-semibold text-[15px] text-[#2B2B2B] tracking-wide uppercase sm:inline">
               Rupiah Building
             </span>
           </Link>
@@ -110,10 +125,10 @@ export default function Navbar() {
                   </span>
                 )}
                 <Link
-                  href="/account"
+                  href={isAdmin ? "/admin/dashboard" : "/account"}
                   className="bg-[#C9A36A] hover:bg-[#A8834A] text-white text-sm font-semibold px-5 py-2 rounded-md transition-colors"
                 >
-                  Account
+                  {isAdmin ? "Admin Panel" : "Account"}
                 </Link>
                 <button
                   onClick={handleLogout}
@@ -209,10 +224,10 @@ export default function Navbar() {
                       </p>
                     )}
                     <Link
-                      href="/account"
+                      href={isAdmin ? "/admin/dashboard" : "/account"}
                       className="flex items-center justify-center bg-[#C9A36A] text-white font-semibold py-2.5 rounded-md text-sm hover:bg-[#A8834A] transition-colors"
                     >
-                      Account
+                      {isAdmin ? "Admin Panel" : "Account"}
                     </Link>
                     <button
                       onClick={handleLogout}

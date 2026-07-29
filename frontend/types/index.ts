@@ -43,11 +43,7 @@ export interface BookingPaymentForm {
   countryRegion: string;
   postcode: string;
   email: string;
-  cardType: string;
-  cardNumber: string;
-  expiryName: string;
-  paymentDate: string;
-  securityCode: string;
+  bank: string;
 }
 
 export interface NavItem {

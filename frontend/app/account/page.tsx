@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -11,11 +10,12 @@ type UserData = {
   email: string;
   phone: string;
   company: string;
-  position: string;
 };
-
 type Booking = {
   id: string;
+  bookingId: string;
+  packId: number;
+  packSlug: string;
   space: string;
   detail: string;
   date: string;
@@ -24,19 +24,33 @@ type Booking = {
   total: string;
 };
 
-const emptyUser: UserData = {
-  fullName: "",
-  email: "",
-  phone: "",
-  company: "",
-  position: "",
+const PACK_SLUG: Record<number, string> = {
+  1: "wowo-starter-pack",
+  2: "wowo-business-pack",
+  3: "wowo-executive-pack",
+  4: "wowi-starter-pack",
+  5: "wowi-business-pack",
+  6: "wowi-executive-pack",
 };
 
+const emptyUser: UserData = { fullName: "", email: "", phone: "", company: "" };
 const statusColor: Record<string, string> = {
   Completed: "text-green-600",
   Progressing: "text-blue-500",
   Cancelled: "text-red-500",
   Pending: "text-orange-500",
+  Expired: "text-gray-400",
+};
+
+// Maps a raw Bookings.status value from the API to the label shown in the
+// UI. Any status not listed here (should not normally happen) falls back
+// to "Pending" rather than silently mislabeling it.
+const BOOKING_STATUS_LABEL: Record<string, string> = {
+  confirmed: "Progressing",
+  completed: "Completed",
+  cancelled: "Cancelled",
+  expired: "Expired",
+  pending: "Pending",
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
@@ -48,7 +62,7 @@ export default function AccountPage() {
   const [form, setForm] = useState<UserData>(emptyUser);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [userId, setUserId] = useState<string>("");
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
 
   useEffect(() => {
     const isLoggedIn = localStorage.getItem("isLoggedIn");
@@ -56,10 +70,8 @@ export default function AccountPage() {
       router.push("/login");
       return;
     }
-
     const token = localStorage.getItem("token");
 
-    // Fetch profil dari API
     fetch(`${API_URL}/api/users/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -71,17 +83,13 @@ export default function AccountPage() {
           fullName: parsed.username || "",
           email: parsed.email || "",
           phone: parsed.phone_number || "",
-          company: "-",
-          position: "-",
+          company: parsed.company || "",
         };
         setUser(mapped);
         setForm(mapped);
-        setUserId(String(parsed.user_id || ""));
-        // Update localStorage juga
         localStorage.setItem("user", JSON.stringify(parsed));
       })
       .catch(() => {
-        // Fallback ke localStorage kalau API gagal
         const storedUser = localStorage.getItem("user");
         if (storedUser) {
           try {
@@ -90,28 +98,25 @@ export default function AccountPage() {
               fullName: parsed.username || "",
               email: parsed.email || "",
               phone: parsed.phone_number || "",
-              company: "-",
-              position: "-",
+              company: parsed.company || "",
             };
             setUser(mapped);
             setForm(mapped);
-            setUserId(String(parsed.user_id || ""));
           } catch {}
         }
       })
       .finally(() => setLoaded(true));
 
-    // Fetch booking history
     fetch(`${API_URL}/api/bookings`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
       .then((result) => {
         if (result.data) {
-          const mapped = result.data.map(
+          const mapped: Booking[] = result.data.map(
             (b: {
               booking_id: string;
-              pack_id: string;
+              pack_id: number;
               floor_booked: string;
               start_date: string;
               end_date: string;
@@ -119,18 +124,14 @@ export default function AccountPage() {
               status: string;
             }) => ({
               id: `BK-${b.booking_id}`,
+              bookingId: String(b.booking_id),
+              packId: b.pack_id,
+              packSlug: PACK_SLUG[b.pack_id] || "wowo-starter-pack",
               space: `Pack ID: ${b.pack_id}`,
               detail: `Floor ${b.floor_booked}`,
               date: new Date(b.start_date).toLocaleDateString("id-ID"),
               time: new Date(b.end_date).toLocaleDateString("id-ID"),
-              status:
-                b.status === "confirmed"
-                  ? "Progressing"
-                  : b.status === "completed"
-                    ? "Completed"
-                    : b.status === "cancelled"
-                      ? "Cancelled"
-                      : "Pending",
+              status: BOOKING_STATUS_LABEL[b.status] ?? "Pending",
               total: `Rp ${Number(b.total_price).toLocaleString("id-ID")}`,
             }),
           );
@@ -152,27 +153,23 @@ export default function AccountPage() {
         body: JSON.stringify({
           username: form.fullName,
           phone_number: form.phone,
+          company: form.company,
         }),
       });
-
       const result = await res.json();
-
       if (res.ok && result.data) {
-        // Update localStorage dengan data terbaru dari server
         localStorage.setItem("user", JSON.stringify(result.data));
         const updated: UserData = {
           fullName: result.data.username || "",
           email: result.data.email || "",
           phone: result.data.phone_number || "",
           company: form.company,
-          position: form.position,
         };
         setUser(updated);
         setForm(updated);
       } else {
         setUser(form);
       }
-
       setEditing(false);
     } catch (err) {
       console.error(err);
@@ -185,24 +182,84 @@ export default function AccountPage() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
-      <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8">
+      {/* Booking Detail Modal */}
+      {selectedBooking && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="font-semibold text-sm text-[#2B2B2B]">
+                Booking Detail
+              </h3>
+              <button
+                onClick={() => setSelectedBooking(null)}
+                className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 text-xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="p-5 space-y-2.5">
+              {[
+                ["Booking ID", selectedBooking.id],
+                ["Space", selectedBooking.space],
+                ["Floor", selectedBooking.detail],
+                ["Start Date", selectedBooking.date],
+                ["End Date", selectedBooking.time],
+                ["Total", selectedBooking.total],
+                ["Status", selectedBooking.status],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="flex justify-between py-1.5 border-b border-gray-50 last:border-0"
+                >
+                  <span className="text-xs font-semibold text-gray-400">
+                    {label}
+                  </span>
+                  <span
+                    className={`text-xs font-bold ${label === "Status" ? (statusColor[value] ?? "text-gray-600") : "text-gray-700"}`}
+                  >
+                    {value}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="px-5 pb-5 flex gap-2">
+              {selectedBooking.status === "Pending" && (
+                <Link
+                  href={`/pay/${selectedBooking.bookingId}`}
+                  className="flex-1 text-center text-xs font-bold bg-[#C9A36A] hover:bg-[#A8834A] text-white py-2.5 rounded-lg transition-colors"
+                >
+                  Pay Now
+                </Link>
+              )}
+              <button
+                onClick={() => setSelectedBooking(null)}
+                className="flex-1 text-xs font-semibold border border-gray-200 text-gray-500 py-2.5 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
         <motion.h1
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          className="font-serif text-3xl font-bold text-[#C9A36A] mb-6"
+          className="font-serif text-2xl sm:text-3xl font-bold text-[#C9A36A] mb-5 sm:mb-6"
         >
           Account
         </motion.h1>
 
-        <div className="grid lg:grid-cols-3 gap-6">
+        <div className="grid lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Profile */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="border border-[#C9A36A]/40 rounded-lg p-5"
+            className="border border-[#C9A36A]/40 rounded-lg p-4 sm:p-5"
           >
-            <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center justify-between mb-4 sm:mb-5">
               <h2 className="text-sm font-semibold text-[#C9A36A]">
                 Profile Information
               </h2>
@@ -213,32 +270,28 @@ export default function AccountPage() {
                 }}
                 className="flex items-center gap-1.5 text-xs border border-gray-300 text-gray-500 hover:border-[#C9A36A] hover:text-[#C9A36A] px-3 py-1.5 rounded transition-colors"
               >
-                <Pencil size={11} /> Edit Profile
+                <Pencil size={11} /> Edit
               </button>
             </div>
-
-            {/* Avatar */}
-            <div className="flex flex-col items-center mb-5">
+            <div className="flex flex-col items-center mb-4 sm:mb-5">
               <div className="w-14 h-14 rounded-full bg-[#C9A36A]/10 border border-[#C9A36A]/20 flex items-center justify-center mb-2">
                 <User size={26} className="text-[#C9A36A]" />
               </div>
             </div>
-
             {editing ? (
               <div className="space-y-3">
                 {[
                   { label: "Full Name", key: "fullName" },
                   { label: "Email", key: "email" },
-                  { label: "Phone Number", key: "phone" },
+                  { label: "Phone", key: "phone" },
                   { label: "Company", key: "company" },
-                  { label: "Position", key: "position" },
                 ].map(({ label, key }) => (
                   <div key={key}>
                     <label className="text-[10px] text-gray-400 block mb-0.5">
                       {label}
                     </label>
                     <input
-                      value={form[key as keyof typeof form]}
+                      value={form[key as keyof UserData]}
                       onChange={(e) =>
                         setForm({ ...form, [key]: e.target.value })
                       }
@@ -269,15 +322,14 @@ export default function AccountPage() {
                 {[
                   { label: "Full Name", value: user.fullName },
                   { label: "Email", value: user.email },
-                  { label: "Phone Number", value: user.phone },
+                  { label: "Phone", value: user.phone },
                   { label: "Company", value: user.company },
-                  { label: "Position", value: user.position },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex gap-2">
-                    <span className="text-xs font-semibold text-gray-500 w-28 flex-shrink-0">
+                    <span className="text-xs font-semibold text-gray-500 w-24 flex-shrink-0">
                       {label}
                     </span>
-                    <span className="text-xs text-gray-700">
+                    <span className="text-xs text-gray-700 break-all">
                       {value || "-"}
                     </span>
                   </div>
@@ -291,86 +343,126 @@ export default function AccountPage() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.15 }}
-            className="lg:col-span-2 border border-[#C9A36A]/40 rounded-lg p-5"
+            className="lg:col-span-2 border border-[#C9A36A]/40 rounded-lg p-4 sm:p-5"
           >
-            <h2 className="text-sm font-semibold text-[#C9A36A] mb-5">
+            <h2 className="text-sm font-semibold text-[#C9A36A] mb-4 sm:mb-5">
               Booking History
             </h2>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    {[
-                      "Booking ID",
-                      "Space Type",
-                      "Date",
-                      "Status",
-                      "Total",
-                    ].map((h, i) => (
-                      <th
-                        key={h}
-                        className={`text-xs font-semibold text-gray-600 pb-2.5 ${i === 4 ? "text-right" : "text-left pr-4"}`}
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {bookings.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-16 text-center">
-                        <p className="text-sm font-medium text-gray-500">
-                          No booking history yet
-                        </p>
-                        <p className="text-xs text-gray-400 mt-1">
-                          Your bookings will appear here after you reserve a
-                          workspace.
-                        </p>
-                      </td>
-                    </tr>
-                  ) : (
-                    bookings.map((b, i) => (
-                      <tr
-                        key={b.id}
-                        className={`hover:bg-gray-50 ${i !== bookings.length - 1 ? "border-b border-gray-50" : ""}`}
-                      >
-                        <td className="py-3.5 pr-4 text-xs text-gray-700">
-                          {b.id}
-                        </td>
-                        <td className="py-3.5 pr-4">
-                          <p className="text-xs text-gray-700">{b.space}</p>
-                          <p className="text-[11px] text-gray-400">
-                            {b.detail}
-                          </p>
-                        </td>
-                        <td className="py-3.5 pr-4">
-                          <p className="text-xs text-gray-700">{b.date}</p>
-                          <p className="text-[11px] text-gray-400">{b.time}</p>
-                        </td>
-                        <td className="py-3.5 pr-4">
-                          <span
-                            className={`text-xs font-medium ${statusColor[b.status] ?? "text-gray-500"}`}
+            {bookings.length === 0 ? (
+              <div className="py-12 text-center">
+                <p className="text-sm font-medium text-gray-500">
+                  No booking history yet
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Your bookings will appear here after you reserve a workspace.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Desktop table */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        {[
+                          "Booking ID",
+                          "Space Type",
+                          "Date",
+                          "Status",
+                          "Total",
+                        ].map((h, i) => (
+                          <th
+                            key={h}
+                            className={`text-xs font-semibold text-gray-600 pb-2.5 ${i === 4 ? "text-right" : "text-left pr-4"}`}
                           >
-                            {b.status}
-                          </span>
-                        </td>
-                        <td className="py-3.5 text-right text-xs text-gray-700">
-                          {b.total}
-                        </td>
+                            {h}
+                          </th>
+                        ))}
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {bookings.map((b, i) => (
+                        <tr
+                          key={b.id}
+                          onClick={() => setSelectedBooking(b)}
+                          className={`hover:bg-[#C9A36A]/5 cursor-pointer transition-colors ${i !== bookings.length - 1 ? "border-b border-gray-50" : ""}`}
+                        >
+                          <td className="py-3 pr-4 text-xs text-gray-700">
+                            {b.id}
+                          </td>
+                          <td className="py-3 pr-4">
+                            <p className="text-xs text-gray-700">{b.space}</p>
+                            <p className="text-[11px] text-gray-400">
+                              {b.detail}
+                            </p>
+                          </td>
+                          <td className="py-3 pr-4">
+                            <p className="text-xs text-gray-700">{b.date}</p>
+                            <p className="text-[11px] text-gray-400">
+                              {b.time}
+                            </p>
+                          </td>
+                          <td className="py-3 pr-4">
+                            <span
+                              className={`text-xs font-medium ${statusColor[b.status] ?? "text-gray-500"}`}
+                            >
+                              {b.status}
+                            </span>
+                          </td>
+                          <td className="py-3 text-right text-xs text-gray-700">
+                            {b.total}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile cards */}
+                <div className="sm:hidden space-y-3">
+                  {bookings.map((b) => (
+                    <div
+                      key={b.id}
+                      onClick={() => setSelectedBooking(b)}
+                      className="border border-gray-100 rounded-lg p-3 cursor-pointer hover:border-[#C9A36A]/40 hover:bg-[#C9A36A]/5 transition-colors"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-[#C9A36A]">
+                          {b.id}
+                        </span>
+                        <span
+                          className={`text-xs font-medium ${statusColor[b.status] ?? "text-gray-500"}`}
+                        >
+                          {b.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-700">
+                        {b.space} — {b.detail}
+                      </p>
+                      <div className="flex items-center justify-between mt-2">
+                        <p className="text-[11px] text-gray-400">
+                          {b.date} → {b.time}
+                        </p>
+                        <p className="text-xs font-semibold text-gray-700">
+                          {b.total}
+                        </p>
+                      </div>
+                      {b.status === "Pending" && (
+                        <p className="text-[10px] text-[#C9A36A] font-semibold mt-1.5">
+                          Tap to pay →
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </motion.div>
         </div>
       </div>
 
-      {/* Footer */}
       <footer className="border-t border-gray-100 mt-8">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p className="text-[11px] text-gray-400">
             &copy; 2026 Rupiah Building Jababeka. All rights reserved.
           </p>

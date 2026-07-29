@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "@/styles/globals.css";
-import Navbar from "@/components/layout/Navbar";
+import ConditionalNavbar from "@/components/layout/ConditionalNavbar";
 
 export const metadata: Metadata = {
   title: "Rupiah Building – Premium Workspace in Jababeka",
@@ -28,8 +28,33 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased">
-        <Navbar />
+        <ConditionalNavbar />
         {children}
+
+        {/* TEMPORARY DEBUG SCRIPT — hapus setelah overflow ketemu.
+            Nge-log ke console setiap elemen yang lebih lebar dari viewport,
+            beserta tag & className-nya, supaya gampang dicari di kode. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.addEventListener('load', () => {
+                const docWidth = document.documentElement.clientWidth;
+                document.querySelectorAll('*').forEach((el) => {
+                  if (el.scrollWidth > docWidth + 5) {
+                    console.log(
+                      'OVERFLOW:',
+                      el.tagName,
+                      el.className,
+                      'scrollWidth:', el.scrollWidth,
+                      'vs viewport:', docWidth,
+                      el
+                    );
+                  }
+                });
+              });
+            `,
+          }}
+        />
       </body>
     </html>
   );

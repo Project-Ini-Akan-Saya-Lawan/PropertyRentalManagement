@@ -45,6 +45,7 @@ export default function SignupPage() {
           username: data.fullName,
           email: data.email,
           phone_number: data.phone,
+          company: data.company || "",
           password: data.password,
         }),
       });
@@ -56,7 +57,6 @@ export default function SignupPage() {
         return;
       }
 
-      // Langsung redirect ke login tanpa alert
       router.push("/login");
     } catch (error) {
       console.error(error);

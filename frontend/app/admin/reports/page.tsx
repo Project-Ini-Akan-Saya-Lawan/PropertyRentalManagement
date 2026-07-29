@@ -1,5 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import {
   Download,
   Building2,
@@ -29,8 +31,40 @@ interface ReportStats {
   churnRate: string | null;
 }
 
+interface Booking {
+  status: string;
+  end_date: string;
+  pack_id: number;
+  booking_date: string;
+  total_price: number;
+}
+
 const TABS = ["Revenue", "Occupancy", "Bookings", "Tenants"];
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+
+// Compact currency label for chart bars (formatIDR's full "Rp x.xxx,xx"
+// format is too long to fit under a narrow bar).
+function formatCompactIDR(amount: number): string {
+  if (amount >= 1_000_000_000) return `${(amount / 1_000_000_000).toFixed(1)}B`;
+  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(1)}M`;
+  if (amount >= 1_000) return `${(amount / 1_000).toFixed(0)}K`;
+  return String(amount);
+}
+
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 function StatCard({
   label,
@@ -64,7 +98,11 @@ function StatCard({
         {label}
       </p>
       <p
-        className={`text-2xl font-bold ${alert ? "text-orange-600" : "text-[#2B2B2B]"}`}
+        className={`font-bold break-words leading-tight ${
+          typeof value === "string" && value.length > 12
+            ? "text-lg"
+            : "text-2xl"
+        } ${alert ? "text-orange-600" : "text-[#2B2B2B]"}`}
       >
         {value ?? <span className="text-gray-200 text-sm">—</span>}
       </p>
@@ -73,15 +111,99 @@ function StatCard({
   );
 }
 
-function ChartBox({ title, sub }: { title: string; sub?: string }) {
+// Bar chart dengan SVG
+function BarChart({
+  data,
+  labels,
+  color = "#C9A36A",
+  height = 160,
+  formatValue = (v: number) => String(v),
+}: {
+  data: number[];
+  labels: string[];
+  color?: string;
+  height?: number;
+  formatValue?: (v: number) => string;
+}) {
+  const max = Math.max(...data, 1);
   return (
-    <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5 h-full flex flex-col">
-      <p className="text-sm font-bold text-[#2B2B2B] mb-0.5">{title}</p>
-      {sub && <p className="text-[10px] text-[#2B2B2B]/50 mb-4">{sub}</p>}
-      <div className="flex-1 min-h-[176px] flex items-center justify-center border-2 border-dashed border-[#C9A36A]/20 rounded-xl">
-        <p className="text-xs text-[#2B2B2B]/30">
-          Chart will appear after API integration
-        </p>
+    <div className="w-full" style={{ height }}>
+      <div className="flex items-end gap-1 h-full pb-5 relative">
+        {data.map((val, i) => (
+          <div
+            key={i}
+            className="flex-1 flex flex-col items-center gap-1 h-full justify-end"
+          >
+            <span className="text-[9px] font-bold text-[#2B2B2B]/60">
+              {val > 0 ? formatValue(val) : ""}
+            </span>
+            <div
+              className="w-full rounded-t-md transition-all duration-500"
+              style={{
+                height: `${(val / max) * 80}%`,
+                backgroundColor: i === data.length - 1 ? color : `${color}80`,
+                minHeight: val > 0 ? "4px" : "0",
+              }}
+            />
+            <span className="text-[9px] font-semibold text-[#2B2B2B]/50 truncate w-full text-center">
+              {labels[i]}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Pie/Donut chart
+function DonutChart({
+  segments,
+  labels,
+}: {
+  segments: { value: number; color: string }[];
+  labels: string[];
+}) {
+  const total = segments.reduce((s, seg) => s + seg.value, 0) || 1;
+  let cumulative = 0;
+  const paths = segments.map((seg) => {
+    const pct = seg.value / total;
+    const start = cumulative;
+    cumulative += pct;
+    const startAngle = start * 2 * Math.PI - Math.PI / 2;
+    const endAngle = cumulative * 2 * Math.PI - Math.PI / 2;
+    const x1 = 18 + 12 * Math.cos(startAngle);
+    const y1 = 18 + 12 * Math.sin(startAngle);
+    const x2 = 18 + 12 * Math.cos(endAngle);
+    const y2 = 18 + 12 * Math.sin(endAngle);
+    const largeArc = pct > 0.5 ? 1 : 0;
+    return {
+      d: `M 18 18 L ${x1} ${y1} A 12 12 0 ${largeArc} 1 ${x2} ${y2} Z`,
+      color: seg.color,
+      value: seg.value,
+    };
+  });
+
+  return (
+    <div className="flex items-center gap-6">
+      <svg viewBox="0 0 36 36" className="w-28 h-28 flex-shrink-0">
+        {paths.map((p, i) => (
+          <path key={i} d={p.d} fill={p.color} />
+        ))}
+        <circle cx="18" cy="18" r="6" fill="white" />
+      </svg>
+      <div className="space-y-2">
+        {segments.map((seg, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <div
+              className="w-3 h-3 rounded-sm flex-shrink-0"
+              style={{ backgroundColor: seg.color }}
+            />
+            <span className="text-xs text-[#2B2B2B]/70">{labels[i]}</span>
+            <span className="text-xs font-bold text-[#2B2B2B] ml-auto">
+              {seg.value}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -90,6 +212,7 @@ function ChartBox({ title, sub }: { title: string; sub?: string }) {
 export default function ReportsPage() {
   const [tab, setTab] = useState(0);
   const [period, setPeriod] = useState("This Month");
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [stats, setStats] = useState<ReportStats>({
     revenueThisMonth: null,
     revenueLastMonth: null,
@@ -118,7 +241,6 @@ export default function ReportsPage() {
     const thisMonth = now.getMonth();
     const thisYear = now.getFullYear();
 
-    // Fetch users → total tenants + new this month
     fetch(`${API_URL}/api/users`, { headers })
       .then((r) => r.json())
       .then((result) => {
@@ -126,34 +248,36 @@ export default function ReportsPage() {
           const tenants = result.data.filter(
             (u: { role_id: number }) => u.role_id === 2,
           );
-          setStats((prev) => ({ ...prev, totalTenants: tenants.length }));
+          const newThis = tenants.filter((u: { created_at?: string }) => {
+            if (!u.created_at) return false;
+            const d = new Date(u.created_at);
+            return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+          }).length;
+          setStats((prev) => ({
+            ...prev,
+            totalTenants: tenants.length,
+            newThisMonth: newThis,
+          }));
         }
       })
       .catch(console.error);
 
-    // Fetch all bookings → pending, active, expiring
     fetch(`${API_URL}/api/bookings/all`, { headers })
       .then((r) => r.json())
       .then((result) => {
         if (result.data) {
-          const bookings = result.data;
-          const pending = bookings.filter(
-            (b: { status: string }) => b.status === "pending",
-          ).length;
-          const active = bookings.filter(
-            (b: { status: string }) => b.status === "confirmed",
-          ).length;
-          const expiring = bookings.filter(
-            (b: { end_date: string; status: string }) => {
-              const end = new Date(b.end_date);
-              return (
-                end.getMonth() === thisMonth &&
-                end.getFullYear() === thisYear &&
-                b.status === "confirmed"
-              );
-            },
-          ).length;
-
+          const bks = result.data as Booking[];
+          setBookings(bks);
+          const pending = bks.filter((b) => b.status === "pending").length;
+          const active = bks.filter((b) => b.status === "confirmed").length;
+          const expiring = bks.filter((b) => {
+            const end = new Date(b.end_date);
+            return (
+              end.getMonth() === thisMonth &&
+              end.getFullYear() === thisYear &&
+              b.status === "confirmed"
+            );
+          }).length;
           setStats((prev) => ({
             ...prev,
             pendingApprovals: pending,
@@ -165,18 +289,15 @@ export default function ReportsPage() {
       })
       .catch(console.error);
 
-    // Fetch floor packs → total units
     fetch(`${API_URL}/api/floor-packs`)
       .then((r) => r.json())
       .then((result) => {
-        if (result.data) {
+        if (result.data)
           setStats((prev) => ({ ...prev, totalUnits: result.data.length }));
-        }
       })
       .catch(console.error);
   }, [period]);
 
-  // Calculate occupancy rate
   useEffect(() => {
     if (stats.totalUnits && stats.occupiedUnits !== null) {
       const rate = Math.round((stats.occupiedUnits / stats.totalUnits) * 100);
@@ -184,17 +305,188 @@ export default function ReportsPage() {
     }
   }, [stats.totalUnits, stats.occupiedUnits]);
 
+  // Build monthly booking chart data (last 6 months)
+  const bookingByMonth = Array(6).fill(0);
+  const revenueByMonth = Array(6).fill(0);
+  const monthLabels: string[] = [];
+  const now = new Date();
+  // A booking only represents real revenue once it's actually been paid for
+  // - "confirmed" (payment settled) or "completed" (lease finished, was paid
+  // at some point). Pending/cancelled bookings never generated revenue.
+  const REVENUE_STATUSES = ["confirmed", "completed"];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    monthLabels.push(MONTHS[d.getMonth()]);
+    const inMonth = bookings.filter((b) => {
+      const bd = new Date(b.booking_date);
+      return (
+        bd.getMonth() === d.getMonth() && bd.getFullYear() === d.getFullYear()
+      );
+    });
+    bookingByMonth[5 - i] = inMonth.length;
+    revenueByMonth[5 - i] = inMonth
+      .filter((b) => REVENUE_STATUSES.includes(b.status))
+      .reduce((sum, b) => sum + Number(b.total_price || 0), 0);
+  }
+  const revenueThisMonthValue = revenueByMonth[5];
+  const revenueLastMonthValue = revenueByMonth[4];
+  const revenueGrowthValue =
+    revenueLastMonthValue > 0
+      ? ((revenueThisMonthValue - revenueLastMonthValue) /
+          revenueLastMonthValue) *
+        100
+      : revenueThisMonthValue > 0
+        ? 100
+        : 0;
+  const annualYieldValue = bookings
+    .filter((b) => REVENUE_STATUSES.includes(b.status))
+    .reduce((sum, b) => sum + Number(b.total_price || 0), 0);
+
+  useEffect(() => {
+    setStats((prev) => ({
+      ...prev,
+      revenueThisMonth: `Rp ${formatCompactIDR(revenueThisMonthValue)}`,
+      revenueLastMonth: `Rp ${formatCompactIDR(revenueLastMonthValue)}`,
+      revenueGrowth: `${revenueGrowthValue >= 0 ? "+" : ""}${revenueGrowthValue.toFixed(1)}%`,
+      annualYield: `Rp ${formatCompactIDR(annualYieldValue)}`,
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }));
+  }, [
+    revenueThisMonthValue,
+    revenueLastMonthValue,
+    revenueGrowthValue,
+    annualYieldValue,
+  ]);
+
+  // Booking status breakdown
+  const pending = bookings.filter((b) => b.status === "pending").length;
+  const confirmed = bookings.filter((b) => b.status === "confirmed").length;
+  const cancelled = bookings.filter((b) => b.status === "cancelled").length;
+  const completed = bookings.filter((b) => b.status === "completed").length;
+
+  // Wowo vs Wowi bookings - counts DISTINCT packs with at least one
+  // confirmed booking, capped at 3 per tower (there are only 3 packs each).
+  // Counting every confirmed booking row instead (the previous approach)
+  // let a single pack that had been booked multiple times over the months
+  // push the count past 3, producing nonsensical rates like 167%.
+  const wowoPacks = [1, 2, 3];
+  const wowiPacks = [4, 5, 6];
+  const wowoBooked = new Set(
+    bookings
+      .filter((b) => wowoPacks.includes(b.pack_id) && b.status === "confirmed")
+      .map((b) => b.pack_id),
+  ).size;
+  const wowiBooked = new Set(
+    bookings
+      .filter((b) => wowiPacks.includes(b.pack_id) && b.status === "confirmed")
+      .map((b) => b.pack_id),
+  ).size;
+  const wowoRate = stats.totalUnits ? Math.round((wowoBooked / 3) * 100) : 0;
+  const wowiRate = stats.totalUnits ? Math.round((wowiBooked / 3) * 100) : 0;
+
+  const getReportData = () => {
+    const tabName = TABS[tab];
+    let headers: string[] = [];
+    let rows: string[][] = [];
+
+    if (tab === 0) {
+      headers = ["Metric", "Value"];
+      rows = [
+        ["Revenue This Month", stats.revenueThisMonth || "—"],
+        ["Revenue Last Month", stats.revenueLastMonth || "—"],
+        ["Revenue Growth", stats.revenueGrowth || "—"],
+        ["Annual Yield", stats.annualYield || "—"],
+        ["Wowo Tower Occupied Packs", String(wowoBooked)],
+        ["Wowi Tower Occupied Packs", String(wowiBooked)],
+        ["Wowo Occupancy Rate", `${wowoRate}%`],
+        ["Wowi Occupancy Rate", `${wowiRate}%`],
+      ];
+    } else if (tab === 1) {
+      headers = ["Metric", "Value"];
+      rows = [
+        ["Total Units", String(stats.totalUnits ?? "—")],
+        ["Occupied Units", String(stats.occupiedUnits ?? "—")],
+        [
+          "Available Units",
+          String((stats.totalUnits ?? 0) - (stats.occupiedUnits ?? 0)),
+        ],
+        ["Overall Occupancy Rate", stats.occupancyRate || "—"],
+        ["Wowo Tower Rate", `${wowoRate}%`],
+        ["Wowi Tower Rate", `${wowiRate}%`],
+      ];
+    } else if (tab === 2) {
+      headers = ["Month", "Bookings"];
+      rows = monthLabels.map((m, i) => [m, String(bookingByMonth[i])]);
+      rows.push(["", ""]);
+      rows.push(["Status", "Count"]);
+      rows.push(["Confirmed", String(confirmed)]);
+      rows.push(["Pending", String(pending)]);
+      rows.push(["Cancelled", String(cancelled)]);
+      rows.push(["Completed", String(completed)]);
+    } else {
+      headers = ["Metric", "Value"];
+      rows = [
+        ["Total Tenants", String(stats.totalTenants ?? "—")],
+        ["New This Month", String(stats.newThisMonth ?? "—")],
+        ["Wowo Tower Bookings", String(wowoBooked)],
+        ["Wowi Tower Bookings", String(wowiBooked)],
+      ];
+    }
+    return { tabName, headers, rows };
+  };
+
   const handleExport = (format: string) => {
-    alert(`Exporting ${TABS[tab]} report as ${format}... (connect to API)`);
+    const { tabName, headers, rows } = getReportData();
+    const date = new Date().toISOString().slice(0, 10);
+
+    if (format === "Excel" || format === "CSV") {
+      const csv = [
+        headers.join(","),
+        ...rows.map((r) => r.map((c) => `"${c}"`).join(",")),
+      ].join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${tabName}_Report_${date}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (format === "PDF") {
+      const doc = new jsPDF();
+      // Header
+      doc.setFontSize(18);
+      doc.setTextColor(201, 163, 106);
+      doc.text("Rupiah Building", 14, 18);
+      doc.setFontSize(12);
+      doc.setTextColor(43, 43, 43);
+      doc.text(`${tabName} Report`, 14, 28);
+      doc.setFontSize(9);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Generated: ${date} | Period: ${period}`, 14, 36);
+      // Table
+      autoTable(doc, {
+        head: [headers],
+        body: rows,
+        startY: 44,
+        styles: { fontSize: 10, cellPadding: 4 },
+        headStyles: {
+          fillColor: [201, 163, 106],
+          textColor: 255,
+          fontStyle: "bold",
+        },
+        alternateRowStyles: { fillColor: [245, 240, 232] },
+        margin: { left: 14, right: 14 },
+      });
+      doc.save(`${tabName}_Report_${date}.pdf`);
+    }
   };
 
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <h1
-            className="text-2xl font-bold text-[#2B2B2B]"
+            className="text-xl sm:text-2xl font-bold text-[#2B2B2B]"
             style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
           >
             Reports
@@ -203,7 +495,7 @@ export default function ReportsPage() {
             Business performance overview and analytics
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <select
             value={period}
             onChange={(e) => setPeriod(e.target.value)}
@@ -221,26 +513,25 @@ export default function ReportsPage() {
           </select>
           <button
             onClick={() => handleExport("Excel")}
-            className="flex items-center gap-1.5 border-2 border-[#C9A36A]/40 text-[#C9A36A] text-xs font-bold px-4 py-2 rounded-xl hover:bg-[#C9A36A]/5 transition-colors"
+            className="flex items-center gap-1.5 border-2 border-[#C9A36A]/40 text-[#C9A36A] text-xs font-bold px-3 sm:px-4 py-2 rounded-xl hover:bg-[#C9A36A]/5 transition-colors whitespace-nowrap"
           >
             <Download size={13} /> Export Excel
           </button>
           <button
             onClick={() => handleExport("PDF")}
-            className="flex items-center gap-1.5 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+            className="flex items-center gap-1.5 bg-[#C9A36A] hover:bg-[#A8834A] text-white text-xs font-bold px-3 sm:px-4 py-2 rounded-xl transition-colors whitespace-nowrap"
           >
             <Download size={13} /> Export PDF
           </button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-2 mb-6 overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
         {TABS.map((t, i) => (
           <button
             key={t}
             onClick={() => setTab(i)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all ${
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all flex-shrink-0 whitespace-nowrap ${
               tab === i
                 ? "bg-[#C9A36A] text-white shadow-sm"
                 : "border-2 border-[#C9A36A]/30 text-[#2B2B2B] hover:border-[#C9A36A]"
@@ -251,7 +542,6 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      {/* Period label */}
       <div className="flex items-center gap-2 mb-5">
         <Calendar size={13} className="text-[#C9A36A]" />
         <p className="text-xs font-semibold text-[#2B2B2B]/60">
@@ -267,13 +557,13 @@ export default function ReportsPage() {
               label="Revenue This Month"
               value={stats.revenueThisMonth}
               icon={<TrendingUp size={16} />}
-              sub="Current period"
+              sub="Confirmed & completed bookings"
             />
             <StatCard
               label="Revenue Last Month"
               value={stats.revenueLastMonth}
               icon={<TrendingUp size={16} />}
-              sub="Previous period"
+              sub="Confirmed & completed bookings"
             />
             <StatCard
               label="Revenue Growth"
@@ -288,59 +578,46 @@ export default function ReportsPage() {
               sub="Full year"
             />
           </div>
-          <div className="grid md:grid-cols-3 gap-4 items-stretch">
-            <div className="md:col-span-2 flex flex-col">
-              <ChartBox title="Revenue Trend" sub="Monthly revenue vs target" />
-            </div>
-            <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5 flex flex-col gap-4 h-full">
-              <p className="text-sm font-bold text-[#2B2B2B]">
-                Revenue Breakdown
-              </p>
-              <div className="bg-[#F5F0E8] rounded-xl p-4">
-                <p className="text-[10px] font-semibold text-[#2B2B2B]/50 uppercase tracking-wider mb-1">
-                  Net Profit Margin
-                </p>
-                <p className="text-2xl font-bold text-[#2B2B2B]">
-                  {stats.netProfitMargin ?? "—"}
-                </p>
-                <p className="text-[10px] text-[#2B2B2B]/40 mt-0.5">
-                  After operational costs
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-[#2B2B2B]/60 mb-3">
-                  By Tower
-                </p>
-                <div className="space-y-2.5">
-                  {["Wowo Tower", "Wowi Tower"].map((t) => (
-                    <div key={t}>
-                      <div className="flex justify-between text-[10px] font-semibold text-[#2B2B2B] mb-1">
-                        <span>{t}</span>
-                        <span className="text-[#2B2B2B]/40">—</span>
-                      </div>
-                      <div className="h-2 bg-gray-100 rounded-full">
-                        <div
-                          className="h-full bg-[#C9A36A] rounded-full"
-                          style={{ width: "0%" }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+          <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5">
+            <p className="text-sm font-bold text-[#2B2B2B] mb-1">
+              Revenue Trend
+            </p>
+            <p className="text-[10px] text-[#2B2B2B]/50 mb-4">
+              Monthly revenue from confirmed &amp; completed bookings
+            </p>
+            <BarChart
+              data={revenueByMonth}
+              labels={monthLabels}
+              formatValue={formatCompactIDR}
+            />
+          </div>
+          <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5">
+            <p className="text-sm font-bold text-[#2B2B2B] mb-4">
+              Revenue by Tower
+            </p>
+            <div className="grid md:grid-cols-2 gap-6">
+              {[
+                { name: "Wowo Tower", booked: wowoBooked, rate: wowoRate },
+                { name: "Wowi Tower", booked: wowiBooked, rate: wowiRate },
+              ].map((t) => (
+                <div key={t.name}>
+                  <div className="flex justify-between text-xs font-semibold text-[#2B2B2B] mb-1.5">
+                    <span>{t.name}</span>
+                    <span className="text-[#C9A36A]">{t.rate}%</span>
+                  </div>
+                  <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-[#C9A36A] rounded-full transition-all duration-500"
+                      style={{ width: `${t.rate}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-[#2B2B2B]/40 mt-1">
+                    {t.booked} of 3 packs occupied
+                  </p>
                 </div>
-              </div>
-              <div className="border-t border-[#C9A36A]/10 pt-3">
-                <p className="text-[10px] font-semibold text-[#2B2B2B]/50 uppercase tracking-wider mb-2">
-                  Top Revenue Source
-                </p>
-                <p className="text-xs font-bold text-[#2B2B2B]">—</p>
-                <p className="text-[10px] text-[#2B2B2B]/40">Data from API</p>
-              </div>
+              ))}
             </div>
           </div>
-          <ChartBox
-            title="Revenue by Tower"
-            sub="Wowo Tower vs Wowi Tower comparison"
-          />
         </div>
       )}
 
@@ -376,34 +653,60 @@ export default function ReportsPage() {
             />
           </div>
           <div className="grid md:grid-cols-2 gap-4">
-            {["Wowo Tower", "Wowi Tower"].map((t) => (
+            {[
+              { name: "Wowo Tower", booked: wowoBooked, rate: wowoRate },
+              { name: "Wowi Tower", booked: wowiBooked, rate: wowiRate },
+            ].map((t) => (
               <div
-                key={t}
+                key={t.name}
                 className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5"
               >
                 <p className="text-sm font-bold text-[#2B2B2B] mb-4">
-                  {t} Occupancy
+                  {t.name} Occupancy
                 </p>
                 <div className="flex items-center gap-4">
                   <div className="w-20 h-20 rounded-full border-8 border-[#C9A36A] flex items-center justify-center flex-shrink-0">
                     <span className="text-lg font-bold text-[#2B2B2B]">
-                      {stats.occupancyRate ?? "—"}
+                      {t.rate}%
                     </span>
                   </div>
-                  <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-[#C9A36A] rounded-full"
-                      style={{ width: stats.occupancyRate ?? "0%" }}
-                    />
+                  <div className="flex-1">
+                    <div className="h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
+                      <div
+                        className="h-full bg-[#C9A36A] rounded-full"
+                        style={{ width: `${t.rate}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-[#2B2B2B]/50">
+                      {t.booked} of 3 packs occupied
+                    </p>
                   </div>
                 </div>
               </div>
             ))}
           </div>
-          <ChartBox
-            title="Occupancy Heatmap"
-            sub="Floor-by-floor occupancy across both towers"
-          />
+          <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5">
+            <p className="text-sm font-bold text-[#2B2B2B] mb-4">
+              Occupancy by Pack Type
+            </p>
+            <BarChart
+              data={[1, 2, 3, 4, 5, 6].map(
+                (id) =>
+                  bookings.filter(
+                    (b) => b.pack_id === id && b.status === "confirmed",
+                  ).length,
+              )}
+              labels={[
+                "Wowo\nStarter",
+                "Wowo\nBusiness",
+                "Wowo\nExec",
+                "Wowi\nStarter",
+                "Wowi\nBusiness",
+                "Wowi\nExec",
+              ]}
+              height={180}
+            />
+          </div>
         </div>
       )}
 
@@ -432,11 +735,35 @@ export default function ReportsPage() {
             />
           </div>
           <div className="grid md:grid-cols-2 gap-4">
-            <ChartBox title="Booking Trend" sub="New bookings per month" />
-            <ChartBox
-              title="Booking Status Breakdown"
-              sub="Approved vs Pending vs Cancelled"
-            />
+            <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5">
+              <p className="text-sm font-bold text-[#2B2B2B] mb-1">
+                Booking Trend
+              </p>
+              <p className="text-[10px] text-[#2B2B2B]/50 mb-4">
+                New bookings per month (last 6 months)
+              </p>
+              <BarChart data={bookingByMonth} labels={monthLabels} />
+            </div>
+            <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5">
+              <p className="text-sm font-bold text-[#2B2B2B] mb-4">
+                Booking Status Breakdown
+              </p>
+              {bookings.length > 0 ? (
+                <DonutChart
+                  segments={[
+                    { value: confirmed, color: "#22c55e" },
+                    { value: pending, color: "#f97316" },
+                    { value: cancelled, color: "#ef4444" },
+                    { value: completed, color: "#3b82f6" },
+                  ]}
+                  labels={["Confirmed", "Pending", "Cancelled", "Completed"]}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-32 text-xs text-[#2B2B2B]/30">
+                  No booking data
+                </div>
+              )}
+            </div>
           </div>
           <div className="bg-orange-50 border-2 border-orange-200 rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-2">
@@ -480,24 +807,87 @@ export default function ReportsPage() {
             />
           </div>
           <div className="grid md:grid-cols-2 gap-4">
-            <ChartBox
-              title="Tenant Growth"
-              sub="Cumulative tenant count over time"
-            />
-            <ChartBox
-              title="Tenant by Tower"
-              sub="Distribution across Wowo & Wowi"
-            />
+            <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5">
+              <p className="text-sm font-bold text-[#2B2B2B] mb-1">
+                Tenant by Tower
+              </p>
+              <p className="text-[10px] text-[#2B2B2B]/50 mb-4">
+                Distribution of occupied packs per tower
+              </p>
+              {bookings.length > 0 ? (
+                <DonutChart
+                  segments={[
+                    { value: wowoBooked, color: "#C9A36A" },
+                    { value: wowiBooked, color: "#A8834A" },
+                  ]}
+                  labels={["Wowo Tower", "Wowi Tower"]}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-32 text-xs text-[#2B2B2B]/30">
+                  No booking data
+                </div>
+              )}
+            </div>
+            <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5">
+              <p className="text-sm font-bold text-[#2B2B2B] mb-1">
+                Monthly Bookings
+              </p>
+              <p className="text-[10px] text-[#2B2B2B]/50 mb-4">
+                Bookings created per month
+              </p>
+              <BarChart
+                data={bookingByMonth}
+                labels={monthLabels}
+                color="#A8834A"
+              />
+            </div>
           </div>
           <div className="bg-white border-2 border-[#C9A36A]/30 rounded-2xl p-5">
             <p className="text-sm font-bold text-[#2B2B2B] mb-3">
               Lease Expiry Timeline
             </p>
-            <div className="h-24 flex items-center justify-center border-2 border-dashed border-[#C9A36A]/20 rounded-xl">
-              <p className="text-xs text-[#2B2B2B]/30">
-                Timeline will appear after API integration
-              </p>
-            </div>
+            {bookings.filter((b) => b.status === "confirmed").length > 0 ? (
+              <div className="space-y-2">
+                {bookings
+                  .filter((b) => b.status === "confirmed")
+                  .map((b, i) => {
+                    const end = new Date(b.end_date);
+                    const diff = Math.ceil(
+                      (end.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+                    );
+                    return (
+                      <div key={i} className="flex items-center gap-3">
+                        <div className="w-24 text-[10px] text-[#2B2B2B]/50 flex-shrink-0">
+                          Pack #{b.pack_id}
+                        </div>
+                        <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${Math.max(0, Math.min(100, (diff / 365) * 100))}%`,
+                              backgroundColor:
+                                diff < 30
+                                  ? "#ef4444"
+                                  : diff < 90
+                                    ? "#f97316"
+                                    : "#C9A36A",
+                            }}
+                          />
+                        </div>
+                        <span
+                          className={`text-[10px] font-bold w-20 text-right flex-shrink-0 ${diff < 30 ? "text-red-500" : diff < 90 ? "text-orange-500" : "text-[#C9A36A]"}`}
+                        >
+                          {diff > 0 ? `${diff}d left` : "Expired"}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            ) : (
+              <div className="h-16 flex items-center justify-center text-xs text-[#2B2B2B]/30">
+                No active leases
+              </div>
+            )}
           </div>
         </div>
       )}

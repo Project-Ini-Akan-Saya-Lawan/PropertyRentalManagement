@@ -1,17 +1,30 @@
 "use client";
-
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, CheckCircle2, Lock } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Landmark } from "lucide-react";
 import BookingStepper from "@/components/booking/BookingStepper";
-import { getWorkspaceBySlug } from "@/data/workspaces";
+import BankTransferModal from "@/components/booking/BankTransferModal";
+import { getWorkspaceBySlug, apiPackToWorkspace } from "@/data/workspaces";
 import { formatIDR } from "@/lib/utils";
-import { notFound } from "next/navigation";
 import Image from "next/image";
+import { paymentService, type BankCode } from "@/services/payment";
+import { Workspace } from "@/types";
+
+const SLUG_TO_PACK_ID: Record<string, number> = {
+  "wowo-starter-pack": 1,
+  "wowo-business-pack": 2,
+  "wowo-executive-pack": 3,
+  "wowi-starter-pack": 4,
+  "wowi-business-pack": 5,
+  "wowi-executive-pack": 6,
+};
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const STATUS_POLL_INTERVAL_MS = 5000;
 
 const schema = z.object({
   firstName: z.string().min(1, "Required"),
@@ -21,22 +34,24 @@ const schema = z.object({
   countryRegion: z.string().min(1, "Required"),
   postcode: z.string().min(3, "Required"),
   email: z.string().email("Invalid email"),
-  cardNumber: z.string().min(16, "Required"),
-  cardholderName: z.string().min(2, "Required"),
-  expiryDate: z.string().min(4, "MM/YY required"),
-  cvv: z.string().min(3, "Required"),
+  bank: z.enum(["bca", "bri", "mandiri"], {
+    errorMap: () => ({ message: "Please choose a bank" }),
+  }),
 });
-
 type Form = z.infer<typeof schema>;
 
-const PAYMENT_LOGOS = [
-  { id: "visa", file: "visa.png" },
-  { id: "jcb", file: "jcb.png" },
-  { id: "mandiri", file: "mandiri.png" },
-  { id: "bca", file: "bca.png" },
-  { id: "mastercard", file: "mastercard.png" },
-  { id: "bri", file: "bri.png" },
+const BANK_OPTIONS: { id: BankCode; label: string; logo: string }[] = [
+  { id: "bca", label: "BCA Virtual Account", logo: "bca.png" },
+  { id: "bri", label: "BRI Virtual Account", logo: "bri.png" },
+  { id: "mandiri", label: "Mandiri Bill Payment", logo: "mandiri.png" },
 ];
+
+const STATUS_MESSAGES: Record<string, string> = {
+  pending: "We haven't detected your transfer yet. It can take a few minutes.",
+  deny: "The payment was denied. Please try again.",
+  cancel: "The payment was cancelled.",
+  expire: "The payment window expired. Please try again.",
+};
 
 export default function PaymentPage({
   params,
@@ -45,58 +60,249 @@ export default function PaymentPage({
 }) {
   const { slug } = use(params);
   const router = useRouter();
-  const workspace = getWorkspaceBySlug(slug);
-  if (!workspace) notFound();
+
+  const [workspace, setWorkspace] = useState<Workspace | null>(
+    getWorkspaceBySlug(slug) || null,
+  );
+  const [loadingWs, setLoadingWs] = useState(!workspace);
+  const [packId, setPackId] = useState<number | null>(
+    SLUG_TO_PACK_ID[slug] || null,
+  );
 
   const [rentData, setRentData] = useState<{
     floor?: string;
     type?: string;
     date?: string;
     commitmentTerms?: string;
+    endDate?: string;
   }>({});
   const [done, setDone] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [selectedCard, setSelectedCard] = useState<string>("");
+  const [bookingError, setBookingError] = useState("");
+  const [showBankModal, setShowBankModal] = useState(false);
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [transferBank, setTransferBank] = useState<BankCode | null>(null);
+  const [vaNumber, setVaNumber] = useState<string | null>(null);
+  const [billerCode, setBillerCode] = useState<string | null>(null);
+  const [billKey, setBillKey] = useState<string | null>(null);
+  const [expiryTime, setExpiryTime] = useState<string | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [statusError, setStatusError] = useState("");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     const raw = sessionStorage.getItem(`rent-${slug}`);
     if (raw) setRentData(JSON.parse(raw));
   }, [slug]);
 
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (workspace) return;
+    fetch(`${API_URL}/api/floor-packs`)
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.data) {
+          const packIdMatch = slug.match(/^pack-(\d+)$/);
+          const found = packIdMatch
+            ? result.data.find(
+                (p: { pack_id: number }) =>
+                  p.pack_id === Number(packIdMatch[1]),
+              )
+            : result.data.find(
+                (p: { pack_name: string }) =>
+                  p.pack_name.toLowerCase().replace(/\s+/g, "-") === slug,
+              );
+          if (found) {
+            setWorkspace(apiPackToWorkspace(found));
+            setPackId(found.pack_id);
+          }
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoadingWs(false));
+  }, [slug]);
+
   const {
     register,
     handleSubmit,
-    setValue,
+    watch,
     formState: { errors },
-  } = useForm<Form>({
-    resolver: zodResolver(schema),
-  });
-
-  const formatCard = (v: string) =>
-    v
-      .replace(/\D/g, "")
-      .slice(0, 16)
-      .replace(/(.{4})/g, "$1 ")
-      .trim();
-  const formatExpiry = (v: string) => {
-    const d = v.replace(/\D/g, "").slice(0, 4);
-    return d.length >= 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
-  };
+  } = useForm<Form>({ resolver: zodResolver(schema) });
+  const selectedBank = watch("bank");
 
   const years = rentData.commitmentTerms
     ? parseInt(rentData.commitmentTerms) || 1
     : 1;
-  const yearly = workspace.monthlyPrice * years;
-  const tax = yearly * workspace.taxRate;
+  const yearly = workspace ? workspace.monthlyPrice * years : 0;
+  const tax = workspace ? yearly * workspace.taxRate : 0;
   const total = yearly + tax;
 
-  const onSubmit = async () => {
-    setProcessing(true);
-    await new Promise((r) => setTimeout(r, 1800));
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const finishSuccess = () => {
+    sessionStorage.removeItem(`rent-${slug}`);
+    sessionStorage.removeItem(`confirm-${slug}`);
+    stopPolling();
+    setShowBankModal(false);
     setProcessing(false);
     setDone(true);
-    setTimeout(() => router.push("/"), 3000);
+    setTimeout(() => router.push("/account"), 3000);
   };
+
+  const checkStatus = async (id: string, { silent = false } = {}) => {
+    if (!silent) setCheckingStatus(true);
+    setStatusError("");
+    try {
+      const statusResult = await paymentService.getStatus(id);
+      const status = statusResult.data.status;
+      if (status === "paid") {
+        finishSuccess();
+        return;
+      }
+      if (["deny", "cancel", "expire"].includes(status)) {
+        stopPolling();
+        setStatusError(STATUS_MESSAGES[status] || `Payment status: ${status}.`);
+      } else if (!silent) {
+        setStatusError(
+          STATUS_MESSAGES[status] || "Still waiting for your transfer.",
+        );
+      }
+    } catch (err) {
+      if (!silent)
+        setStatusError("Could not check payment status. Please try again.");
+    } finally {
+      if (!silent) setCheckingStatus(false);
+    }
+  };
+
+  const startBankTransfer = async (bookingId: number, bank: BankCode) => {
+    try {
+      const chargeResult = await paymentService.chargeBankTransfer(
+        bookingId,
+        bank,
+      );
+      const {
+        payment,
+        transaction_status,
+        va_number,
+        biller_code,
+        bill_key,
+        expiry_time,
+      } = chargeResult.data;
+      setOrderId(payment.order_id);
+      setTransferBank(bank);
+      setVaNumber(va_number);
+      setBillerCode(biller_code);
+      setBillKey(bill_key);
+      setExpiryTime(expiry_time);
+      setStatusError("");
+      setProcessing(false);
+      if (
+        transaction_status === "settlement" ||
+        transaction_status === "capture"
+      ) {
+        finishSuccess();
+        return;
+      }
+      // Redirect to account instead of showing bank modal
+      sessionStorage.removeItem(`rent-${slug}`);
+      sessionStorage.removeItem(`confirm-${slug}`);
+      router.push("/account");
+    } catch (err) {
+      setBookingError(
+        err instanceof Error ? err.message : "Failed to create bank transfer.",
+      );
+      setProcessing(false);
+    }
+  };
+
+  const cancelBooking = async (bookingId: number, token: string) => {
+    try {
+      await fetch(`${API_URL}/api/bookings/${bookingId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {}
+  };
+
+  const onSubmit = async (formData: Form) => {
+    setProcessing(true);
+    setBookingError("");
+    let bookingId: number | null = null;
+    let token: string | null = null;
+    try {
+      token = localStorage.getItem("token");
+      // Get pack_id: from mapping, from pack-{id} slug, or from loaded pack
+      const resolvedPackId =
+        SLUG_TO_PACK_ID[slug] ||
+        (slug.match(/^pack-(\d+)$/)
+          ? Number(slug.match(/^pack-(\d+)$/)![1])
+          : null) ||
+        packId;
+      const floorNum = parseInt((rentData.floor || "").replace("Floor ", ""));
+      const months = years * 12;
+      if (!token || !resolvedPackId || !rentData.date || !floorNum) {
+        setBookingError(
+          "Missing booking data. Please go back and fill in the details.",
+        );
+        setProcessing(false);
+        return;
+      }
+      const res = await fetch(`${API_URL}/api/bookings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          pack_id: resolvedPackId,
+          floor_booked: floorNum,
+          start_date: rentData.date,
+          months,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        setBookingError(result.message || "Failed to create booking.");
+        setProcessing(false);
+        return;
+      }
+      bookingId = result.data.booking_id;
+      await startBankTransfer(bookingId as number, formData.bank);
+    } catch (err) {
+      if (bookingId && token) await cancelBooking(bookingId, token);
+      setBookingError(
+        err instanceof Error
+          ? `Payment failed: ${err.message}`
+          : "Cannot connect to server.",
+      );
+      setProcessing(false);
+    }
+  };
+
+  if (loadingWs)
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Loading...</p>
+      </div>
+    );
+
+  if (!workspace)
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Package not found.</p>
+      </div>
+    );
 
   return (
     <div className="min-h-screen bg-white">
@@ -107,22 +313,17 @@ export default function PaymentPage({
         >
           <ArrowLeft size={13} /> Back
         </button>
-
         <h1 className="font-serif text-2xl font-bold text-[#C9A36A] mb-6">
           Rent Details
         </h1>
-
         <BookingStepper step={3} />
-
         <div className="grid lg:grid-cols-3 gap-8">
-          {/* Form */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             className="lg:col-span-2 space-y-6"
           >
             <form onSubmit={handleSubmit(onSubmit)} id="pay-form">
-              {/* Billing Information */}
               <h2 className="font-semibold text-[#2B2B2B] mb-4">
                 Billing Information
               </h2>
@@ -150,127 +351,51 @@ export default function PaymentPage({
                   </div>
                 ))}
               </div>
-
-              {/* Payment Details */}
               <h2 className="font-semibold text-[#2B2B2B] mb-3">
-                Payment Details
+                Payment Method
               </h2>
-
-              {/* Card type selector */}
-              <div className="flex flex-wrap items-center gap-3 mb-4">
-                <span className="text-xs text-gray-400">Card Type</span>
-                {PAYMENT_LOGOS.map((p) => (
+              <p className="text-xs text-gray-400 mb-3">
+                Choose a bank to generate a Virtual Account for your transfer.
+              </p>
+              <div className="grid sm:grid-cols-3 gap-3 mb-2">
+                {BANK_OPTIONS.map((b) => (
                   <label
-                    key={p.id}
-                    className={`flex items-center gap-1.5 cursor-pointer border rounded-md px-2 py-1.5 transition-all ${
-                      selectedCard === p.id
-                        ? "border-[#C9A36A] bg-amber-50"
-                        : "border-gray-200 hover:border-gray-300"
-                    }`}
+                    key={b.id}
+                    className={`flex items-center gap-2 cursor-pointer border rounded-md px-3 py-2.5 transition-all ${selectedBank === b.id ? "border-[#C9A36A] bg-amber-50" : "border-gray-200 hover:border-gray-300"}`}
                   >
                     <input
                       type="radio"
-                      name="cardType"
-                      value={p.id}
-                      checked={selectedCard === p.id}
-                      onChange={() => setSelectedCard(p.id)}
+                      value={b.id}
+                      {...register("bank")}
                       className="accent-[#C9A36A] w-3 h-3"
                     />
                     <Image
-                      src={`/payments/${p.file}`}
-                      alt={p.id}
-                      width={48}
-                      height={24}
-                      className="h-6 w-auto object-contain"
+                      src={`/payments/${b.logo}`}
+                      alt={b.id}
+                      width={40}
+                      height={20}
+                      className="h-5 w-auto object-contain"
                     />
+                    <span className="text-xs text-gray-600">{b.label}</span>
                   </label>
                 ))}
               </div>
-
-              <div className="grid sm:grid-cols-2 gap-3">
-                {/* Card Number */}
-                <div className="sm:col-span-2">
-                  <label className="text-xs font-medium text-gray-500 block mb-1">
-                    Card Number
-                  </label>
-                  <input
-                    {...register("cardNumber")}
-                    placeholder="1234 5678 9012 3456"
-                    onChange={(e) =>
-                      setValue("cardNumber", formatCard(e.target.value))
-                    }
-                    className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
-                  />
-                  {errors.cardNumber && (
-                    <p className="text-red-500 text-[10px] mt-0.5">
-                      {errors.cardNumber.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* Cardholder Name */}
-                <div className="sm:col-span-2">
-                  <label className="text-xs font-medium text-gray-500 block mb-1">
-                    Cardholder Name
-                  </label>
-                  <input
-                    {...register("cardholderName")}
-                    placeholder="Name as it appears on card"
-                    className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
-                  />
-                  {errors.cardholderName && (
-                    <p className="text-red-500 text-[10px] mt-0.5">
-                      {errors.cardholderName.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* Expiry Date */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 block mb-1">
-                    Expiry Date (MM/YY)
-                  </label>
-                  <input
-                    {...register("expiryDate")}
-                    placeholder="MM/YY"
-                    onChange={(e) =>
-                      setValue("expiryDate", formatExpiry(e.target.value))
-                    }
-                    className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
-                  />
-                  {errors.expiryDate && (
-                    <p className="text-red-500 text-[10px] mt-0.5">
-                      {errors.expiryDate.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* CVV */}
-                <div>
-                  <label className="text-xs font-medium text-gray-500 block mb-1">
-                    CVV / Security Code
-                  </label>
-                  <input
-                    {...register("cvv")}
-                    type="password"
-                    placeholder="3 or 4 digits"
-                    maxLength={4}
-                    className="w-full border border-gray-200 rounded-md px-3 py-2.5 text-sm text-gray-700 placeholder:text-gray-300"
-                  />
-                  {errors.cvv && (
-                    <p className="text-red-500 text-[10px] mt-0.5">
-                      {errors.cvv.message}
-                    </p>
-                  )}
-                </div>
-              </div>
-
+              {errors.bank && (
+                <p className="text-red-500 text-[10px] mb-3">
+                  {errors.bank.message}
+                </p>
+              )}
               <div className="flex items-center gap-1.5 mt-3 text-[11px] text-gray-400">
-                <Lock size={11} /> Secured with 256-bit SSL encryption
+                <Landmark size={11} /> Secured by Midtrans
               </div>
+              {bookingError && (
+                <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
+                  <p className="text-red-600 text-xs font-semibold">
+                    {bookingError}
+                  </p>
+                </div>
+              )}
             </form>
-
-            {/* Buttons */}
             <div className="flex gap-3 pt-2">
               <button
                 type="button"
@@ -306,12 +431,10 @@ export default function PaymentPage({
                     />
                   </svg>
                 )}
-                {processing ? "Processing..." : "Pay Now"}
+                {processing ? "Processing..." : "Generate Payment Details"}
               </button>
             </div>
           </motion.div>
-
-          {/* Right: Your Order */}
           <div>
             <div className="bg-white border border-gray-200 rounded-xl p-5 sticky top-24">
               <h4 className="text-xs font-bold text-[#2B2B2B] uppercase tracking-wider mb-4">
@@ -357,8 +480,19 @@ export default function PaymentPage({
           </div>
         </div>
       </div>
-
-      {/* Success overlay */}
+      <BankTransferModal
+        open={showBankModal}
+        bank={transferBank}
+        vaNumber={vaNumber}
+        billerCode={billerCode}
+        billKey={billKey}
+        expiryTime={expiryTime}
+        amount={total}
+        checking={checkingStatus}
+        errorMessage={statusError}
+        onCheckStatus={() => orderId && checkStatus(orderId)}
+        onClose={() => setShowBankModal(false)}
+      />
       <AnimatePresence>
         {done && (
           <motion.div
@@ -379,8 +513,7 @@ export default function PaymentPage({
                 Booking Confirmed!
               </h2>
               <p className="text-sm text-gray-500">
-                Your workspace at <strong>{workspace.name}</strong> has been
-                booked. Redirecting…
+                Redirecting to your account…
               </p>
             </motion.div>
           </motion.div>

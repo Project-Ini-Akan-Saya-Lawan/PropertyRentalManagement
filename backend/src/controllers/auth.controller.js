@@ -4,7 +4,7 @@ const bcrypt = require("bcrypt");
 const generateToken = require("../utils/generateToken");
 
 const signup = async (req, res) => {
-  const { username, email, phone_number, password } = req.body;
+  const { username, email, phone_number, password, company } = req.body;
   const role_id = 2;
 
   if (!username || !email || !password) {
@@ -28,14 +28,16 @@ const signup = async (req, res) => {
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = await pool.query(
-      `INSERT INTO Users (username, email, phone_number, hashed_password, auth_provider, role_id)
-       VALUES ($1, $2, $3, $4, 'local', $5) RETURNING user_id, username, email, phone_number, auth_provider`,
+      `INSERT INTO Users (username, email, phone_number, hashed_password, auth_provider, role_id, company, status)
+       VALUES ($1, $2, $3, $4, 'local', $5, $6, 'active')
+       RETURNING user_id, username, email, phone_number, auth_provider`,
       [
         username,
         normalizedEmail,
         phone_number || null,
         hashedPassword,
         role_id,
+        company || null,
       ],
     );
 
@@ -95,12 +97,10 @@ const login = async (req, res) => {
     const user = result.rows[0];
 
     if (!user.hashed_password) {
-      return res
-        .status(401)
-        .json({
-          message:
-            "This account was registered via Google. Please login using Google.",
-        });
+      return res.status(401).json({
+        message:
+          "This account was registered via Google. Please login using Google.",
+      });
     }
 
     const isPasswordValid = await bcrypt.compare(
@@ -109,6 +109,19 @@ const login = async (req, res) => {
     );
     if (!isPasswordValid) {
       return res.status(401).json({ message: "Invalid email or password." });
+    }
+
+    if (user.status === "suspended") {
+      return res.status(403).json({
+        message:
+          "Your account has been suspended. Please contact support for assistance.",
+      });
+    }
+    if (user.status === "inactive") {
+      return res.status(403).json({
+        message:
+          "Your account is inactive. Please contact support to reactivate it.",
+      });
     }
 
     const token = generateToken(user);
@@ -136,8 +149,11 @@ const googleCallback = (req, res) => {
     return res.redirect(`${clientUrl}/login?error=google_failed`);
   }
 
-  const token = generateToken(req.user);
+  if (req.user.status === "suspended" || req.user.status === "inactive") {
+    return res.redirect(`${clientUrl}/login?error=account_${req.user.status}`);
+  }
 
+  const token = generateToken(req.user);
   res.redirect(`${clientUrl}/auth/callback?token=${encodeURIComponent(token)}`);
 };
 

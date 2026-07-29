@@ -1,32 +1,50 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
-
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap");
 :root {
-  --gold: #C9A36A;
-  --gold-dark: #A8834A;
-  --dark: #2B2B2B;
-  --muted: #6B7280;
+  --gold: #c9a36a;
+  --gold-dark: #a8834a;
+  --dark: #2b2b2b;
+  --muted: #6b7280;
 }
-
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
-html { scroll-behavior: smooth; }
-
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
 body {
-  font-family: 'Inter', sans-serif;
-  color: #2B2B2B;
+  font-family: "Inter", sans-serif;
+  color: #2b2b2b;
   background: #fff;
   -webkit-font-smoothing: antialiased;
+  position: relative;
 }
-
 /* Gold scrollbar */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #f1f1f1; }
-::-webkit-scrollbar-thumb { background: #C9A36A; border-radius: 3px; }
-
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+::-webkit-scrollbar-thumb {
+  background: #c9a36a;
+  border-radius: 3px;
+}
+/* Hides the scrollbar entirely while keeping the element scrollable - used
+   for small horizontally-scrollable strips (e.g. tab rows) where the site's
+   thick gold scrollbar would otherwise render as an ugly bar underneath. */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/old Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/WebKit */
+}
 /* Marquee carousel */
 .marquee-wrapper {
   overflow: hidden;
@@ -34,9 +52,10 @@ body {
 }
 .marquee-wrapper::before,
 .marquee-wrapper::after {
-  content: '';
+  content: "";
   position: absolute;
-  top: 0; bottom: 0;
+  top: 0;
+  bottom: 0;
   width: 80px;
   z-index: 2;
   pointer-events: none;
@@ -49,7 +68,6 @@ body {
   right: 0;
   background: linear-gradient(to left, #fff, transparent);
 }
-
 .marquee-track {
   display: flex;
   width: max-content;
@@ -58,21 +76,26 @@ body {
 .marquee-track:hover {
   animation-play-state: paused;
 }
-
 @keyframes marquee {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
 }
-
 /* Input reset */
-input, select, textarea {
+input,
+select,
+textarea {
   outline: none;
 }
-input:focus, select:focus, textarea:focus {
-  border-color: #C9A36A !important;
-  box-shadow: 0 0 0 2px rgba(201,163,106,0.15);
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #c9a36a !important;
+  box-shadow: 0 0 0 2px rgba(201, 163, 106, 0.15);
 }
-
 /* Stepper connector */
 .stepper-connector {
   flex: 1;
@@ -82,5 +105,15 @@ input:focus, select:focus, textarea:focus {
   margin-bottom: 28px;
 }
 .stepper-connector.done {
-  background: #C9A36A;
+  background: #c9a36a;
+}
+
+/* Fix: force header onto its own compositing layer so mobile browsers
+   (esp. iOS Safari) paint the fixed header immediately on load, instead
+   of waiting for a scroll/touch event to trigger a repaint. */
+header {
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }

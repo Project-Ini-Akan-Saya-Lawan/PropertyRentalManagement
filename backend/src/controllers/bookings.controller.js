@@ -1,5 +1,9 @@
 // src/controllers/bookings.controller.js
 const pool = require("../../db");
+const {
+  expireStaleBookings,
+  BOOKING_EXPIRY_MS,
+} = require("../utils/bookingExpiry");
 
 const getMyBookings = async (req, res) => {
   const userId = req.user.user_id;
@@ -26,8 +30,18 @@ const getBookingById = async (req, res) => {
     if (booking.rows.length === 0) {
       return res.status(404).json({ message: "Booking not found." });
     }
+    // expiry_time must come back as the same raw "yyyy-MM-dd HH:mm:ss" (WIB
+    // wall-clock, no timezone suffix) string the frontend already expects -
+    // see the comment in payments.controller.js's chargeBankTransferPayment.
+    // Without the explicit to_char() cast here, node-postgres turns the
+    // TIMESTAMP column into a JS Date and Express serializes it as a full
+    // ISO string with a trailing "Z". The frontend's isPaymentStillValid()
+    // then appends "+07:00" after that "Z", producing an Invalid Date -
+    // which makes every existing payment look expired on reload, even
+    // seconds after it was created.
     const payments = await pool.query(
-      "SELECT * FROM Payments WHERE booking_id = $1",
+      `SELECT *, to_char(expiry_time, 'YYYY-MM-DD HH24:MI:SS') AS expiry_time
+       FROM Payments WHERE booking_id = $1`,
       [id],
     );
     res
@@ -82,7 +96,9 @@ const createBooking = async (req, res) => {
     const endDate = new Date(start_date);
     endDate.setMonth(endDate.getMonth() + Number(months));
 
-    const total_price = Number(price) * Number(months);
+    const total_price =
+      Number(price) * (Number(months) / 12) +
+      (Number(price) * (Number(months) / 12)) / 10;
 
     const existingBooking = await pool.query(
       `SELECT booking_id FROM Bookings
@@ -100,10 +116,20 @@ const createBooking = async (req, res) => {
       });
     }
 
+    const expiresAt = new Date(Date.now() + BOOKING_EXPIRY_MS);
+
     const result = await pool.query(
-      `INSERT INTO Bookings (user_id, pack_id, floor_booked, start_date, end_date, total_price, status)
-             VALUES ($1, $2, $3, $4, $5, $6, 'pending') RETURNING *`,
-      [userId, pack_id, floor_booked, start_date, endDate, total_price],
+      `INSERT INTO Bookings (user_id, pack_id, floor_booked, start_date, end_date, total_price, status, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7) RETURNING *`,
+      [
+        userId,
+        pack_id,
+        floor_booked,
+        start_date,
+        endDate,
+        total_price,
+        expiresAt,
+      ],
     );
 
     // Send notification to admin
@@ -135,7 +161,13 @@ const updateBookingStatus = async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
-  const allowedStatus = ["pending", "confirmed", "cancelled", "completed"];
+  const allowedStatus = [
+    "pending",
+    "confirmed",
+    "cancelled",
+    "completed",
+    "expired",
+  ];
   if (!status || !allowedStatus.includes(status)) {
     return res
       .status(400)
@@ -143,8 +175,20 @@ const updateBookingStatus = async (req, res) => {
   }
 
   try {
+    // expires_at only matters while a booking is 'pending'; clear it once
+    // it moves to any other state so the expiry job stops considering it.
+    //
+    // $1 is cast explicitly here because it's used twice in this query: once
+    // assigned straight to the Status column (inferred as varchar) and once
+    // compared against a text literal in the CASE (inferred as text).
+    // Postgres refuses to reconcile two different inferred types for the
+    // same parameter and throws "inconsistent types deduced for parameter
+    // $1" (42P08) on every single call - this was why every Approve/Pending/
+    // Cancel action from the admin panel failed with a 500 error.
     const result = await pool.query(
-      "UPDATE Bookings SET status = $1 WHERE booking_id = $2 AND deleted_at IS NULL RETURNING *",
+      `UPDATE Bookings
+       SET status = $1::varchar, expires_at = CASE WHEN $1::varchar = 'pending' THEN expires_at ELSE NULL END
+       WHERE booking_id = $2 AND deleted_at IS NULL RETURNING *`,
       [status, id],
     );
     if (result.rows.length === 0) {
@@ -214,6 +258,19 @@ const getAllBookings = async (req, res) => {
   }
 };
 
+const runBookingExpiryCheck = async (req, res) => {
+  try {
+    const expired = await expireStaleBookings();
+    res.status(200).json({
+      message: `Expiry check complete. ${expired.length} booking(s) expired.`,
+      data: expired,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Internal server error." });
+  }
+};
+
 module.exports = {
   getMyBookings,
   getBookingById,
@@ -221,4 +278,5 @@ module.exports = {
   updateBookingStatus,
   deleteBooking,
   getAllBookings,
+  runBookingExpiryCheck,
 };
